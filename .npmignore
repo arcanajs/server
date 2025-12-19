@@ -1,0 +1,13 @@
+# Exclude source files
+/src/
+
+# Exclude configuration files
+/tsconfig.json
+/tsconfig.build.json
+/bun.lock
+
+# Exclude examples
+/examples/
+
+# Exclude node_modules
+/node_modules/

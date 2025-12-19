@@ -20,6 +20,9 @@ export interface Request {
   headers: Headers;
   body: any;
   app: any;
+  cookies: Record<string, any>;
+  signedCookies: Record<string, any>;
+  secret?: string | string[];
   json(): Promise<any>;
   [key: string]: any;
 }
@@ -31,7 +34,8 @@ export interface Response {
   set(name: string, value: string): this;
   get(name: string): string | null;
   header(name: string, value: string): this;
-  cookie(name: string, value: string, options?: any): this;
+  cookie(name: string, value: string, options?: CookieOptions): this;
+  clearCookie(name: string, options?: CookieOptions): this;
   redirect(url: string, status?: number): Promise<this>;
 
   render(
@@ -76,3 +80,15 @@ export type LifecycleHook =
   | "afterResponse"
   | "onError"
   | "onSuccess";
+
+export interface CookieOptions {
+  maxAge?: number;
+  signed?: boolean;
+  expires?: Date;
+  httpOnly?: boolean;
+  path?: string;
+  domain?: string;
+  secure?: boolean;
+  sameSite?: boolean | "lax" | "strict" | "none";
+  encode?: (val: string) => string;
+}

@@ -1,3 +1,5 @@
+import cookie from "cookie";
+import signature from "cookie-signature";
 import type { Request, Response } from "../types";
 
 export class RequestImpl implements Request {
@@ -10,7 +12,10 @@ export class RequestImpl implements Request {
   public headers: Headers;
   public body: any = null;
   public app: any;
-  private _nativeRequest: globalThis.Request;
+  public cookies: Record<string, any> = {};
+  public signedCookies: Record<string, any> = {};
+  public secret?: string | string[];
+  public _nativeRequest: globalThis.Request;
   [key: string]: any;
 
   constructor(nativeRequest: globalThis.Request, app: any) {
@@ -116,14 +121,31 @@ export class ResponseImpl implements Response {
     return this;
   }
 
-  cookie(name: string, value: string, options: any = {}): this {
-    // Basic cookie implementation
-    let str = `${name}=${value}`;
-    if (options.path) str += `; Path=${options.path}`;
-    if (options.expires) str += `; Expires=${options.expires.toUTCString()}`;
-    if (options.httpOnly) str += `; HttpOnly`;
-    this._headers.append("Set-Cookie", str);
+  cookie(name: string, value: any, options: any = {}): this {
+    let val =
+      typeof value === "object" ? "j:" + JSON.stringify(value) : String(value);
+
+    if (options.signed) {
+      const secret = this.req.secret || this.req.app?.get("cookie secret");
+      if (!secret) {
+        throw new Error('cookieParser("secret") required for signed cookies');
+      }
+      val =
+        "s:" + signature.sign(val, Array.isArray(secret) ? secret[0] : secret);
+    }
+
+    if (options.maxAge) {
+      options.expires = new Date(Date.now() + options.maxAge);
+    }
+
+    const cookieStr = cookie.serialize(name, val, options);
+    this._headers.append("Set-Cookie", cookieStr);
     return this;
+  }
+
+  clearCookie(name: string, options: any = {}): this {
+    const opts = { ...options, expires: new Date(1), maxAge: 0 };
+    return this.cookie(name, "", opts);
   }
 
   async redirect(url: string, status: number = 302): Promise<this> {
