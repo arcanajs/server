@@ -23,6 +23,8 @@ export interface Request {
   cookies: Record<string, any>;
   signedCookies: Record<string, any>;
   secret?: string | string[];
+  session?: import("../modules/session").Session;
+  sessionID?: string;
   json(): Promise<any>;
   [key: string]: any;
 }

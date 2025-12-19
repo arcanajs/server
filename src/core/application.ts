@@ -30,6 +30,13 @@ export class Application {
     this.set("x-powered-by", true);
     this.set("views", path.resolve("views"));
     this.set("view", View);
+
+    // Default multipart configuration
+    this.set("multipart", {
+      maxFileSize: 10 * 1024 * 1024, // 10MB
+      maxFiles: 10,
+      tempDir: "/tmp",
+    });
   }
 
   engine(
@@ -43,6 +50,22 @@ export class Application {
 
   set(setting: string, val: any): this {
     this._settings[setting] = val;
+    return this;
+  }
+
+  /**
+   * Configure multipart form data parsing options
+   *
+   * @param options Multipart configuration options
+   * @returns this for chaining
+   */
+  multipart(options: {
+    maxFileSize?: number;
+    maxFiles?: number;
+    tempDir?: string;
+  }): this {
+    const current = this.get("multipart") || {};
+    this.set("multipart", { ...current, ...options });
     return this;
   }
 
@@ -242,7 +265,7 @@ export class Application {
    * Main entry point from server adapters
    */
   async fetch(nativeRequest: globalThis.Request): Promise<globalThis.Response> {
-    const arcanaReq = new RequestImpl(nativeRequest, this);
+    const arcanajsReq = new RequestImpl(nativeRequest, this);
 
     // This promise will resolve when the response is ready to be sent to the client
     let responseResolver: (res: globalThis.Response) => void;
@@ -250,48 +273,48 @@ export class Application {
       responseResolver = resolve;
     });
 
-    const arcanaRes = new ResponseImpl(responseResolver!, this);
-    arcanaRes.req = arcanaReq;
+    const arcanajsRes = new ResponseImpl(responseResolver!, this);
+    arcanajsRes.req = arcanajsReq;
 
     // Track the lifecycle separately
     const lifecycle = (async () => {
       try {
-        await this.runBeforeRequestHooks(arcanaReq);
+        await this.runBeforeRequestHooks(arcanajsReq);
 
         const done = async (err?: any) => {
           if (err) {
-            await this.runOnErrorHooks(err, arcanaReq, arcanaRes);
+            await this.runOnErrorHooks(err, arcanajsReq, arcanajsRes);
             console.error(err);
-            if (!arcanaRes.sent) {
-              await arcanaRes
+            if (!arcanajsRes.sent) {
+              await arcanajsRes
                 .status(500)
                 .json({ error: "Internal Server Error" });
             }
-          } else if (!arcanaRes.sent) {
-            await arcanaRes.status(404).send("Not Found");
+          } else if (!arcanajsRes.sent) {
+            await arcanajsRes.status(404).send("Not Found");
           }
         };
 
-        await this.handle(arcanaReq, arcanaRes, done);
+        await this.handle(arcanajsReq, arcanajsRes, done);
 
         // Wait for response to be sent if the router finished early
-        if (!arcanaRes.sent) {
+        if (!arcanajsRes.sent) {
           await Promise.race([
             responsePromise,
             new Promise((r) => setTimeout(r, 100)),
           ]).catch(() => {});
         }
       } catch (err) {
-        await this.runOnErrorHooks(err, arcanaReq, arcanaRes);
+        await this.runOnErrorHooks(err, arcanajsReq, arcanajsRes);
         console.error(err);
-        if (!arcanaRes.sent) {
-          await arcanaRes.status(500).json({ error: "Internal Server Error" });
+        if (!arcanajsRes.sent) {
+          await arcanajsRes.status(500).json({ error: "Internal Server Error" });
         }
       } finally {
-        if (arcanaRes.sent) {
-          await this.runOnSuccessHooks(arcanaReq, arcanaRes);
+        if (arcanajsRes.sent) {
+          await this.runOnSuccessHooks(arcanajsReq, arcanajsRes);
         }
-        await this.runAfterRequestHooks(arcanaReq, arcanaRes);
+        await this.runAfterRequestHooks(arcanajsReq, arcanajsRes);
       }
     })();
 
