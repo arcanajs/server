@@ -1,12 +1,16 @@
 {
   "name": "@arcanajs/server",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/types/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "bun run build:js && bun run build:types",

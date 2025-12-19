@@ -4,7 +4,7 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "outDir": "./dist/types",
+    "outDir": "./dist",
     "rootDir": "src"
   },
   "include": ["src/**/*"]
