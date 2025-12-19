@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build ./src/index.ts --outdir ./dist --target bun --minify --sourcemap",
+    "build:js": "bun build ./src/index.ts --outdir ./dist --target bun --minify --sourcemap --external cookie --external cookie-signature",
     "build:types": "bun x tsc -p tsconfig.build.json",
     "dev": "bun --watch examples/example.ts"
   },
