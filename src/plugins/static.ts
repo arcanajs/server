@@ -1,5 +1,5 @@
+import path from "node:path";
 import type { Middleware } from "../types";
-import { path as pathUtil } from "../utils/path";
 
 export const static_files = (root: string): Middleware => {
   return async (req, res, next) => {
@@ -7,7 +7,7 @@ export const static_files = (root: string): Middleware => {
       return next();
     }
 
-    const filePath = pathUtil.join(root, req.path);
+    const filePath = path.join(root, req.path);
     const file = Bun.file(filePath);
 
     if (await file.exists()) {

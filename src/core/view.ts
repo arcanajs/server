@@ -1,4 +1,4 @@
-import { path } from "../utils/path";
+import path from "node:path";
 
 export interface ViewOptions {
   defaultEngine?: string;

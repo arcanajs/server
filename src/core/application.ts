@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   ErrorMiddleware,
   HttpMethod,
@@ -7,7 +8,6 @@ import type {
   Request,
   Response,
 } from "../types";
-import { path } from "../utils/path";
 import { RequestImpl, ResponseImpl } from "./context";
 import { Router } from "./router";
 import { View } from "./view";
