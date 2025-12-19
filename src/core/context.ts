@@ -154,6 +154,13 @@ export class ResponseImpl implements Response {
     return await this.send("");
   }
 
+  async end(data?: string | Buffer | Uint8Array): Promise<this> {
+    if (data) {
+      return await this.send(data);
+    }
+    return await this.send("");
+  }
+
   respond(response: globalThis.Response): void {
     if (this._sent) return;
     this._sent = true;

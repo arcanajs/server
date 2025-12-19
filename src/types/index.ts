@@ -37,6 +37,7 @@ export interface Response {
   cookie(name: string, value: string, options?: CookieOptions): this;
   clearCookie(name: string, options?: CookieOptions): this;
   redirect(url: string, status?: number): Promise<this>;
+  end(data?: string | Buffer | Uint8Array): Promise<this>;
 
   render(
     view: string,
