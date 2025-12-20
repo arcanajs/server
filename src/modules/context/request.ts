@@ -3,17 +3,12 @@
  *
  */
 
-import type { Request as RequestInterface } from "../../types";
+import type {
+  Request as RequestInterface,
+  AcceptsResult,
+} from "../../types";
 
-/**
- * Accepted content type result
- */
-export interface AcceptsResult {
-  type: string;
-  subtype: string;
-  params: Record<string, string>;
-  quality: number;
-}
+export type { AcceptsResult };
 
 /**
  * RequestImpl - Enhanced request implementation

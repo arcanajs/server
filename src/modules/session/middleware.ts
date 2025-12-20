@@ -122,10 +122,6 @@ export function session(options: SessionOptions): Middleware {
       configurable: true,
     });
 
-    // 5. Intercept response to save session
-    const originalSend = res.send.bind(res);
-    const originalEnd = res.end.bind(res);
-
     const saveSession = async () => {
       if (saved) return;
       saved = true;
@@ -160,16 +156,8 @@ export function session(options: SessionOptions): Middleware {
       }
     };
 
-    // Override res.send/end to trigger save
-    res.send = async (data: any) => {
-      await saveSession();
-      return await originalSend(data);
-    };
-
-    res.end = async (data?: any) => {
-      await saveSession();
-      return await originalEnd(data);
-    };
+    // Defer session saving until the response is about to be sent
+    res.defer(saveSession);
 
     await next();
   };

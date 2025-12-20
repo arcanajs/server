@@ -5,19 +5,14 @@
 
 import cookie from "cookie";
 import signature from "cookie-signature";
-import type { CookieOptions, Response as ResponseInterface } from "../../types";
+import type {
+  CookieOptions,
+  Response as ResponseInterface,
+  SendFileOptions,
+  Request,
+} from "../../types";
 
-/**
- * Send file options
- */
-export interface SendFileOptions {
-  root?: string;
-  maxAge?: number | string;
-  cacheControl?: boolean;
-  lastModified?: boolean;
-  headers?: Record<string, string>;
-  dotfiles?: "allow" | "deny" | "ignore";
-}
+export type { SendFileOptions };
 
 /**
  * ResponseImpl - Enhanced response implementation
@@ -29,9 +24,10 @@ export class ResponseImpl implements ResponseInterface {
   private _sent: boolean = false;
   private _resolve: (res: globalThis.Response) => void;
   private _app: any;
+  private _deferred: (() => void | Promise<void>)[] = [];
 
   // Reference to request (set by Application)
-  public req: any;
+  public req!: Request;
 
   // Track if headers have been sent
   private _headersSent: boolean = false;
@@ -310,7 +306,7 @@ export class ResponseImpl implements ResponseInterface {
       // Set custom headers
       if (options.headers) {
         for (const [key, value] of Object.entries(options.headers)) {
-          this.set(key, value);
+          this.set(key, String(value));
         }
       }
 
@@ -413,6 +409,11 @@ export class ResponseImpl implements ResponseInterface {
   /**
    * Stream a ReadableStream as the response
    */
+  defer(fn: () => void | Promise<void>): this {
+    this._deferred.push(fn);
+    return this;
+  }
+
   async stream(readable: ReadableStream): Promise<void> {
     if (this._sent) return;
 

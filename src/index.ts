@@ -39,7 +39,7 @@ import { Router } from "./modules/router";
 // Plugins
 import { cookieParser } from "./plugins/cookie";
 import { json as jsonMiddleware } from "./plugins/json";
-import { static_files } from "./plugins/static";
+import { staticPlugin as static_files } from "./plugins/static";
 
 // ============================================================================
 // Attach Static Methods
@@ -169,7 +169,7 @@ export type {
 // Plugin exports
 export { cookieParser, cookiePlugin } from "./plugins/cookie";
 export { json, jsonPlugin } from "./plugins/json";
-export { static_files } from "./plugins/static";
+export { staticPlugin, type ServeStaticOptions } from "./plugins/static";
 
 // Session module exports
 export { FileStore, MemoryStore, RedisStore, session } from "./modules/session";

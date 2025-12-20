@@ -13,18 +13,7 @@ import signature from "cookie-signature";
  * to create a unique, unpredictable session identifier.
  */
 export function generateSessionId(): string {
-  // Use crypto.randomUUID() for base ID (122 bits of randomness)
-  const uuid = crypto.randomUUID();
-
-  // Add additional entropy using current timestamp and random bytes
-  const timestamp = Date.now().toString(36);
-  const randomBytes = crypto.getRandomValues(new Uint8Array(8));
-  const randomHex = Array.from(randomBytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  // Combine and return
-  return `${uuid}-${timestamp}-${randomHex}`;
+  return crypto.randomUUID();
 }
 
 /**

@@ -1,19 +1,24 @@
-import path from "node:path";
-import type { Middleware } from "../types";
+import type { Application } from "../core/application";
+import { serveStatic } from "../modules/serve-static";
 
-export const static_files = (root: string): Middleware => {
-  return async (req, res, next) => {
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      return next();
-    }
+export interface ServeStaticOptions {
+  acceptRanges?: boolean;
+  cacheControl?: boolean;
+  dotfiles?: 'allow' | 'deny' | 'ignore';
+  etag?: boolean;
+  extensions?: string[] | false;
+  fallthrough?: boolean;
+  immutable?: boolean;
+  index?: string[] | string | false;
+  lastModified?: boolean;
+  maxAge?: number | string;
+  redirect?: boolean;
+  setHeaders?: (res: any, path: string, stat: any) => void;
+}
 
-    const filePath = path.join(root, req.path);
-    const file = Bun.file(filePath);
-
-    if (await file.exists()) {
-      res.respond(new globalThis.Response(file));
-    } else {
-      await next();
-    }
-  };
-};
+export const staticPlugin = (root: string, options?: ServeStaticOptions) => ({
+  name: "static",
+  install(app: Application) {
+    app.use(serveStatic(root, options));
+  },
+});

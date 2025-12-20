@@ -1,7 +1,13 @@
 import cookie from "cookie";
 import signature from "cookie-signature";
 import type { Application } from "../core/application";
-import type { Middleware, NextFunction, Request, Response } from "../types";
+import type {
+  Middleware,
+  NextFunction,
+  Request,
+  Response,
+  CookieOptions,
+} from "../types";
 
 /**
  * Parse JSON cookie string.
@@ -125,9 +131,24 @@ export const cookieParser = (secret?: string | string[]): Middleware => {
   };
 };
 
-export const cookiePlugin = (secret?: string | string[]) => ({
+export const cookiePlugin = (options?: {
+  secret?: string | string[];
+  defaults?: CookieOptions;
+}) => ({
   name: "cookie",
   install(app: Application) {
+    const secret = options?.secret || process.env.COOKIE_SECRET;
     app.use(cookieParser(secret));
+
+    if (options?.defaults) {
+      app.use((_req: Request, res: Response, next: NextFunction) => {
+        const originalCookie = res.cookie.bind(res);
+        res.cookie = (name: string, value: any, opts: CookieOptions = {}) => {
+          const newOptions = { ...options.defaults, ...opts };
+          return originalCookie(name, value, newOptions);
+        };
+        next();
+      });
+    }
   },
 });

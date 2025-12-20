@@ -1,8 +1,22 @@
 import cookie from "cookie";
 import signature from "cookie-signature";
-import type { Request, Response } from "../types";
+import type { Request, Response } from "../types/index";
+
+import accepts from "accepts";
+import { createReadStream, stat } from "fs-extra";
+import { lookup } from "mime-types";
+import { basename, resolve } from "node:path";
+import type { SendFileOptions } from "../types/index";
 
 export class RequestImpl implements Request {
+  public ip: string;
+  public protocol: "http" | "https";
+  public secure: boolean;
+  public xhr: boolean;
+  public hostname: string;
+  public subdomains: string[] = [];
+  public fresh: boolean;
+  public stale: boolean;
   public method: string;
   public url: string;
   public path: string;
@@ -31,6 +45,57 @@ export class RequestImpl implements Request {
     url.searchParams.forEach((value, key) => {
       this.query[key] = value;
     });
+
+    this.ip = this.headers.get("x-forwarded-for") || "";
+    this.protocol = url.protocol.slice(0, -1) as "http" | "https";
+    this.secure = this.protocol === "https";
+    this.xhr = this.headers.get("x-requested-with") === "XMLHttpRequest";
+    this.hostname = url.hostname;
+
+    // Calculate subdomains
+    const hostParts = this.hostname.split(".");
+    if (hostParts.length > 2) {
+      this.subdomains = hostParts.slice(0, hostParts.length - 2);
+    }
+
+    this.fresh = false;
+    this.stale = true;
+  }
+
+  get(name: string): string | undefined {
+    return this.headers.get(name) || undefined;
+  }
+
+  accepts(...types: string[]): string | false {
+    const accept = accepts(this as any);
+    const result = accept.types(types);
+    return Array.isArray(result) ? result[0] || false : result;
+  }
+
+  acceptsEncodings(...encodings: string[]): string | false {
+    const accept = accepts(this as any);
+    const result = accept.encodings(encodings);
+    return Array.isArray(result) ? result[0] || false : result;
+  }
+
+  acceptsLanguages(...languages: string[]): string | false {
+    const accept = accepts(this as any);
+    const result = accept.languages(languages);
+    return Array.isArray(result) ? result[0] || false : result;
+  }
+
+  is(...types: string[]): string | false {
+    const contentType = this.headers.get("content-type") || "";
+    if (!contentType) return false;
+    if (!types.length) return contentType;
+
+    for (const type of types) {
+      if (contentType.includes(type)) {
+        return type;
+      }
+    }
+
+    return false;
   }
 
   async json() {
@@ -42,6 +107,22 @@ export class RequestImpl implements Request {
       return null;
     }
   }
+
+  async text(): Promise<string> {
+    return await this._nativeRequest.text();
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    return await this._nativeRequest.arrayBuffer();
+  }
+
+  async blob(): Promise<Blob> {
+    return await this._nativeRequest.blob();
+  }
+
+  async formData(): Promise<FormData> {
+    return (await this._nativeRequest.formData()) as unknown as FormData;
+  }
 }
 
 export class ResponseImpl implements Response {
@@ -49,12 +130,19 @@ export class ResponseImpl implements Response {
   private _headers: Headers = new Headers();
   private _body: any = null;
   private _sent: boolean = false;
+  private _deferred: (() => void | Promise<void>)[] = [];
   private _resolve: (res: globalThis.Response) => void;
   private _app: any;
+  public req: Request;
 
-  constructor(resolve: (res: globalThis.Response) => void, app: any) {
+  constructor(
+    resolve: (res: globalThis.Response) => void,
+    app: any,
+    req: Request
+  ) {
     this._resolve = resolve;
     this._app = app;
+    this.req = req;
   }
 
   status(code: number): this {
@@ -75,9 +163,34 @@ export class ResponseImpl implements Response {
     return this._headers.get(name);
   }
 
+  append(name: string, value: string): this {
+    this._headers.append(name, value);
+    return this;
+  }
+
+  removeHeader(name: string): this {
+    this._headers.delete(name);
+    return this;
+  }
+
+  type(contentType: string): this {
+    this.set("Content-Type", contentType);
+    return this;
+  }
+
+  defer(fn: () => void | Promise<void>): this {
+    this._deferred.push(fn);
+    return this;
+  }
+
   async json(data: any): Promise<this> {
     this.set("Content-Type", "application/json");
     return await this.send(JSON.stringify(data));
+  }
+
+  async html(data: string): Promise<this> {
+    this.set("Content-Type", "text/html");
+    return await this.send(data);
   }
 
   async render(
@@ -97,6 +210,11 @@ export class ResponseImpl implements Response {
 
   async send(data: string | Buffer | Uint8Array): Promise<this> {
     if (this._sent) return this;
+
+    // Run deferred functions
+    for (const fn of this._deferred) {
+      await fn();
+    }
 
     // Trigger beforeResponse hooks
     if (this._app) {
@@ -154,6 +272,86 @@ export class ResponseImpl implements Response {
     return await this.send("");
   }
 
+  attachment(filename?: string): this {
+    if (filename) {
+      this.type(lookup(filename) || "application/octet-stream");
+    }
+    this.set(
+      "Content-Disposition",
+      `attachment${filename ? `; filename="${basename(filename)}"` : ""}`
+    );
+    return this;
+  }
+
+  async download(
+    filePath: string,
+    filename?: string,
+    options?: SendFileOptions
+  ): Promise<void> {
+    const effectiveFilename = filename || basename(filePath);
+    this.attachment(effectiveFilename);
+    return await this.sendFile(filePath, options);
+  }
+
+  async sendFile(filePath: string, options?: SendFileOptions): Promise<void> {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) {
+      throw new Error("Path is not a file");
+    }
+
+    const resolvedPath = resolve(filePath);
+    const root = options?.root ? resolve(options.root) : process.cwd();
+
+    if (!resolvedPath.startsWith(root)) {
+      throw new Error("File is outside of root directory");
+    }
+
+    this.set("Content-Length", fileStats.size.toString());
+    if (options?.lastModified) {
+      this.set("Last-Modified", fileStats.mtime.toUTCString());
+    }
+    if (options?.headers) {
+      for (const [key, value] of Object.entries(options.headers)) {
+        this.set(key, value);
+      }
+    }
+
+    const stream = createReadStream(resolvedPath);
+    await this.stream(stream as any);
+  }
+
+  vary(field: string): this {
+    this.append("Vary", field);
+    return this;
+  }
+
+  location(url: string): this {
+    this.set("Location", url);
+    return this;
+  }
+
+  links(links: Record<string, string>): this {
+    const linkHeader = Object.entries(links)
+      .map(([rel, url]) => `<${url}>; rel="${rel}"`)
+      .join(", ");
+    this.set("Link", linkHeader);
+    return this;
+  }
+
+  async sendStatus(code: number): Promise<this> {
+    this.status(code);
+    return await this.send(new TextEncoder().encode(String(code)));
+  }
+
+  async stream(readable: ReadableStream): Promise<void> {
+    this._resolve(
+      new globalThis.Response(readable, {
+        status: this._status,
+        headers: this._headers,
+      })
+    );
+  }
+
   async end(data?: string | Buffer | Uint8Array): Promise<this> {
     if (data) {
       return await this.send(data);
@@ -172,6 +370,14 @@ export class ResponseImpl implements Response {
   }
 
   get sent(): boolean {
+    return this._sent;
+  }
+
+  get headersSent(): boolean {
+    return this._sent;
+  }
+
+  get finished(): boolean {
     return this._sent;
   }
 

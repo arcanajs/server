@@ -273,7 +273,7 @@ export class Application {
       responseResolver = resolve;
     });
 
-    const arcanajsRes = new ResponseImpl(responseResolver!, this);
+    const arcanajsRes = new ResponseImpl(responseResolver!, this, arcanajsReq);
     arcanajsRes.req = arcanajsReq;
 
     // Track the lifecycle separately
