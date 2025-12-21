@@ -6,8 +6,19 @@ import type {
   NextFunction,
   Request,
   Response,
-  CookieOptions,
 } from "../types";
+
+export interface CookieOptions {
+  maxAge?: number;
+  signed?: boolean;
+  expires?: Date;
+  httpOnly?: boolean;
+  path?: string;
+  domain?: string;
+  secure?: boolean;
+  sameSite?: boolean | "lax" | "strict" | "none";
+  encode?: (val: string) => string;
+}
 
 /**
  * Parse JSON cookie string.
@@ -101,7 +112,11 @@ export function signedCookies(
 
 export const cookieParser = (secret?: string | string[]): Middleware => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (req.cookies) {
+    console.log('Cookie parser called');
+    console.log('req.cookies before:', req.cookies);
+    
+    if (req.cookies && Object.keys(req.cookies).length > 0) {
+      console.log('Cookies already populated, skipping parse');
       return await next();
     }
 
@@ -112,11 +127,18 @@ export const cookieParser = (secret?: string | string[]): Middleware => {
     req.signedCookies = Object.create(null);
 
     const cookieHeader = req.headers.get("cookie");
+    console.log('Cookie header from request:', cookieHeader);
+    
     if (!cookieHeader) {
+      console.log('No cookie header found');
       return await next();
     }
 
-    req.cookies = cookie.parse(cookieHeader);
+    console.log('About to parse cookie header...');
+    const parsed = cookie.parse(cookieHeader);
+    console.log('Parsed cookies result:', parsed);
+    
+    req.cookies = parsed;
 
     // parse signed cookies
     if (secrets.length !== 0) {
@@ -137,7 +159,9 @@ export const cookiePlugin = (options?: {
 }) => ({
   name: "cookie",
   install(app: Application) {
+    console.log('Cookie plugin install() called');
     const secret = options?.secret || process.env.COOKIE_SECRET;
+    console.log('Installing cookie parser with secret:', !!secret);
     app.use(cookieParser(secret));
 
     if (options?.defaults) {

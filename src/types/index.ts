@@ -1,3 +1,5 @@
+import { CookieOptions } from "../plugins/cookie";
+
 export type HttpMethod =
   | "GET"
   | "POST"
@@ -137,14 +139,4 @@ export type LifecycleHook =
   | "onError"
   | "onSuccess";
 
-export interface CookieOptions {
-  maxAge?: number;
-  signed?: boolean;
-  expires?: Date;
-  httpOnly?: boolean;
-  path?: string;
-  domain?: string;
-  secure?: boolean;
-  sameSite?: boolean | "lax" | "strict" | "none";
-  encode?: (val: string) => string;
-}
+

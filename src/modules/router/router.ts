@@ -87,12 +87,20 @@ export class Router {
   }
 
   /**
+   * Use error handling middleware
+   */
+  useError(handler: ErrorMiddleware): this {
+    this.stack.push(new Layer("/", "USE", handler));
+    return this;
+  }
+
+  /**
    * Add a route with specific method
    */
   route(
     method: HttpMethod,
     path: string,
-    ...args: (Middleware | RouteConstraints)[]
+    ...args: (Middleware | RouteConstraints | Middleware[])[]
   ): this {
     const resolvedPath = this._resolvePath(path);
     let handlers: Middleware[] = [];
@@ -104,6 +112,13 @@ export class Router {
         handlers.push(arg as Middleware);
       } else if (typeof arg === "object" && !Array.isArray(arg)) {
         constraints = arg as RouteConstraints;
+      } else if (Array.isArray(arg)) {
+        // Handle arrays of middleware functions
+        for (const item of arg) {
+          if (typeof item === "function") {
+            handlers.push(item as Middleware);
+          }
+        }
       }
     }
 
@@ -117,10 +132,7 @@ export class Router {
 
     // Always add to stack for compatibility
     handlers.forEach((fn) => {
-      const layer = new Layer(resolvedPath, method, fn);
-      if (constraints) {
-        layer.constraints = constraints;
-      }
+      const layer = new Layer(resolvedPath, method, fn, constraints);
       this.stack.push(layer);
     });
 
@@ -140,16 +152,15 @@ export class Router {
     callback(subRouter);
 
     // Merge sub-router's stack into this router
-    this.stack.push(...subRouter.stack);
-
-    // Merge into radix tree if enabled
-    if (this._radixTree) {
-      for (const layer of subRouter.stack) {
-        if (layer.method !== "USE") {
-          this._radixTree.add(layer.method, layer.path, [
-            layer.handler as Middleware,
-          ]);
-        }
+    for (const layer of subRouter.stack) {
+      // Create new layer with proper path and constraints
+      const newLayer = new Layer(layer.path, layer.method, layer.handler, layer.constraints);
+      this.stack.push(newLayer);
+      
+      // Also add to radix tree if enabled
+      if (this._radixTree && layer.method !== "USE") {
+        const parsedConstraints = layer.constraints ? this._parseConstraints(layer.constraints) : undefined;
+        this._radixTree.add(layer.method, layer.path, [layer.handler as Middleware], parsedConstraints);
       }
     }
 
@@ -164,14 +175,14 @@ export class Router {
 
     router.stack.forEach((layer) => {
       const fullPath = this._joinPaths(mountPath, layer.path);
-      const newLayer = new Layer(fullPath, layer.method, layer.handler);
-      newLayer.constraints = layer.constraints;
+      const newLayer = new Layer(fullPath, layer.method, layer.handler, layer.constraints);
       this.stack.push(newLayer);
 
       if (this._radixTree && layer.method !== "USE") {
+        const parsedConstraints = layer.constraints ? this._parseConstraints(layer.constraints) : undefined;
         this._radixTree.add(layer.method, fullPath, [
           layer.handler as Middleware,
-        ]);
+        ], parsedConstraints);
       }
     });
 
@@ -179,31 +190,31 @@ export class Router {
   }
 
   // HTTP method shortcuts
-  get(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  get(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("GET", path, ...args);
   }
 
-  post(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  post(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("POST", path, ...args);
   }
 
-  put(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  put(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("PUT", path, ...args);
   }
 
-  delete(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  delete(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("DELETE", path, ...args);
   }
 
-  patch(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  patch(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("PATCH", path, ...args);
   }
 
-  head(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  head(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("HEAD", path, ...args);
   }
 
-  options(path: string, ...args: (Middleware | RouteConstraints)[]): this {
+  options(path: string, ...args: (Middleware | RouteConstraints | Middleware[])[]): this {
     return this.route("OPTIONS", path, ...args);
   }
 
@@ -236,20 +247,67 @@ export class Router {
       if (match) {
         req.params = { ...req.params, ...match.params };
 
-        let idx = 0;
-        const next: NextFunction = async (err?: any) => {
+        // First, execute all USE middleware
+        let middlewareIdx = 0;
+        const middlewareStack = this.stack.filter(layer => layer.method === "USE");
+        
+        const executeMiddleware = async (err?: any) => {
           if (err) return out(err);
-          if (idx >= match.route.handlers.length) return out();
+          if (middlewareIdx >= middlewareStack.length) {
+            // All middleware executed, now execute route handlers
+            return executeRouteHandlers();
+          }
 
-          const handler = match.route.handlers[idx++];
+          const layer = middlewareStack[middlewareIdx++];
+          const path = req.path;
+
+          if (!layer.match(path)) {
+            return executeMiddleware(err);
+          }
+
+          // Handle path stripping for USE
+          const originalPath = req.path;
+          const originalBaseUrl = req.baseUrl;
+          const removed = layer.method === "USE" ? layer.path : "";
+
+          if (removed !== "/" && removed !== "") {
+            req.baseUrl += removed;
+            req.path = req.path.substring(removed.length) || "/";
+          }
+
+          req.params = { ...req.params, ...layer.params(path) };
+
           try {
-            await handler(req, res, next);
+            if (layer.handler.length === 4) {
+              await (layer.handler as ErrorMiddleware)(null, req, res, executeMiddleware);
+            } else {
+              await (layer.handler as Middleware)(req, res, executeMiddleware);
+            }
+          } catch (e) {
+            req.path = originalPath;
+            req.baseUrl = originalBaseUrl;
+            return out(e);
+          }
+
+          req.path = originalPath;
+          req.baseUrl = originalBaseUrl;
+        };
+
+        // Execute route handlers after middleware
+        let routeIdx = 0;
+        const executeRouteHandlers = async (err?: any) => {
+          if (err) return out(err);
+          if (routeIdx >= match.route.handlers.length) return out();
+
+          const handler = match.route.handlers[routeIdx++];
+          try {
+            await handler(req, res, executeRouteHandlers);
           } catch (e) {
             return out(e);
           }
         };
 
-        return next();
+        return executeMiddleware();
       }
     }
 
@@ -277,16 +335,8 @@ export class Router {
       // Check constraints
       if (layer.constraints) {
         const params = layer.params(path);
-        for (const [param, constraint] of Object.entries(layer.constraints)) {
-          const value = params[param];
-          if (value !== undefined) {
-            if (constraint instanceof RegExp && !constraint.test(value)) {
-              return next(err);
-            }
-            if (typeof constraint === "function" && !constraint(value)) {
-              return next(err);
-            }
-          }
+        if (!layer.validateParams(params)) {
+          return out(); // Stop processing, constraints failed
         }
       }
 

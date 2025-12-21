@@ -7,64 +7,85 @@
  */
 
 // ============================================================================
-// Core Exports
+// IMPORTS
 // ============================================================================
 
+// Core imports
 import { Application, arcanajs as createApplication } from "./core/application";
-import { patchListen } from "./modules/http";
+import { patchListen } from "./server/arcanajs";
+
+// Router Module imports
+import { Router } from "./modules/router";
+
+// Plugin imports
+import { CookieOptions, cookiePlugin } from "./plugins/cookie";
+import {
+  FaviconMetrics,
+  FaviconOptions,
+  faviconPlugin,
+  getFaviconMetrics,
+  resetFaviconMetrics,
+} from "./plugins/favicon";
+import { JsonOptions, jsonPlugin } from "./plugins/json";
+import { ServeStaticOptions, staticPlugin } from "./plugins/static";
+import { WebSocketOptions, websocketPlugin } from "./plugins/websocket";
+
+// ============================================================================
+// CORE INITIALIZATION
+// ============================================================================
 
 // Patch listen for compatibility
 patchListen(Application.prototype);
 
 // ============================================================================
-// Factory Function
+// FACTORY FUNCTION
 // ============================================================================
 
 /**
  * Create a new ArcanaJS application instance
  */
-function createArcanaJS(): Application {
+function arcanajs(): Application {
   return createApplication();
 }
 
 // ============================================================================
-// Core Classes and Modules
+// STATIC METHOD ATTACHMENTS
 // ============================================================================
 
-// Legacy Router (for backward compatibility)
+arcanajs.Application = Application;
+arcanajs.Router = () => new Router();
+arcanajs.json = jsonPlugin;
+arcanajs.cookie = cookiePlugin;
+arcanajs.static = staticPlugin;
+arcanajs.favicon = faviconPlugin;
+arcanajs.ws = websocketPlugin;
 
-// Enhanced Router from modules
-import { Router } from "./modules/router";
-
-// Plugins
-import { cookieParser } from "./plugins/cookie";
-import { json as jsonMiddleware } from "./plugins/json";
-import { staticPlugin as static_files } from "./plugins/static";
-
-// ============================================================================
-// Attach Static Methods
-// ============================================================================
-
-createArcanaJS.Application = Application;
-createArcanaJS.Router = () => new Router();
-createArcanaJS.json = jsonMiddleware;
-createArcanaJS.cookie = cookieParser;
-createArcanaJS.static = static_files;
+// Export favicon utilities
+arcanajs.getFaviconMetrics = getFaviconMetrics;
+arcanajs.resetFaviconMetrics = resetFaviconMetrics;
 
 // ============================================================================
-// Exports
+// MAIN EXPORTS
 // ============================================================================
 
 // Default and named exports
-export const arcanajs = createArcanaJS;
 export default arcanajs;
 
-// Core exports
-export { Application } from "./core/application";
-export { Router as LegacyRouter } from "./core/router";
-export { Router } from "./modules/router";
+// Plugin options types
+export type {
+  CookieOptions,
+  FaviconMetrics,
+  FaviconOptions,
+  JsonOptions,
+  ServeStaticOptions,
+  WebSocketOptions,
+};
 
-// Kernel exports
+// ============================================================================
+// CORE EXPORTS
+// ============================================================================
+
+// Kernel system
 export {
   ArcanaJSKernel,
   createKernel,
@@ -78,7 +99,7 @@ export type {
   ModuleFactory,
 } from "./core/kernel";
 
-// Error exports
+// Error handling
 export {
   BadGatewayError,
   BadRequestError,
@@ -99,10 +120,20 @@ export {
   ValidationError,
 } from "./core/errors";
 
-// Debug exports
-export { createDebug, Debug, debug, debugMiddleware } from "./core/debug";
+// Debug utilities
+export {
+  createDebug,
+  Debug,
+  debug,
+  debugMiddleware,
+  logger,
+} from "./core/debug";
 
-// Router module exports
+// ============================================================================
+// MODULE EXPORTS
+// ============================================================================
+
+// Router module
 export { Layer, RadixTree, RouterModule } from "./modules/router";
 export type {
   ParamConstraint,
@@ -113,7 +144,7 @@ export type {
   RouterOptions,
 } from "./modules/router";
 
-// Middleware module exports
+// Middleware module
 export {
   catchErrors,
   compose,
@@ -125,15 +156,15 @@ export {
 } from "./modules/middleware";
 export type { MiddlewareOptions } from "./modules/middleware";
 
-// Context module exports
+// Context module
 export { RequestImpl, ResponseImpl } from "./modules/context";
 export type { AcceptsResult, SendFileOptions } from "./modules/context";
 
-// HTTP module exports
+// HTTP module
 export { HttpModule, HttpServer, serve } from "./modules/http";
 export type { ServerOptions } from "./modules/http";
 
-// Security module exports
+// Security module
 export {
   bodyLimit,
   contentSecurityPolicy,
@@ -166,12 +197,7 @@ export type {
   ReferrerPolicy,
 } from "./modules/security";
 
-// Plugin exports
-export { cookieParser, cookiePlugin } from "./plugins/cookie";
-export { json, jsonPlugin } from "./plugins/json";
-export { staticPlugin, type ServeStaticOptions } from "./plugins/static";
-
-// Session module exports
+// Session module
 export { FileStore, MemoryStore, RedisStore, session } from "./modules/session";
 export type {
   RedisClient,
@@ -182,5 +208,9 @@ export type {
   SessionStore,
 } from "./modules/session";
 
-// Type exports
+// ============================================================================
+// TYPE EXPORTS
+// ============================================================================
+
+// Global type exports
 export * from "./types";

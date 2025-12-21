@@ -1,4 +1,5 @@
 import path from "node:path";
+import { Router } from "../modules/router";
 import type {
   ErrorMiddleware,
   HttpMethod,
@@ -9,21 +10,24 @@ import type {
   Response,
 } from "../types";
 import { RequestImpl, ResponseImpl } from "./context";
-import { Router } from "./router";
 import { View } from "./view";
 
 export class Application {
-  private _router: Router = new Router();
+  private _router: Router = new Router({ useRadixTree: true });
   private _settings: Record<string, any> = {};
   private _plugins: Plugin[] = [];
   private _engines: Record<string, any> = {};
   private _extensions = {
     request: new Map<string, Function>(),
     response: new Map<string, Function>(),
+    application: new Map<string, Function>(),
   };
   private _hooks = new Map<string, Function[]>();
 
   public locals: Record<string, any> = {};
+  public websocket?: any;
+  public io?: any;
+  public server?: any; // Store Bun server instance for IP detection
 
   constructor() {
     this.set("env", process.env.NODE_ENV || "development");
@@ -37,6 +41,11 @@ export class Application {
       maxFiles: 10,
       tempDir: "/tmp",
     });
+
+    // Apply application extensions after initialization
+    setTimeout(() => {
+      this._applyApplicationExtensions();
+    }, 0);
   }
 
   engine(
@@ -80,25 +89,14 @@ export class Application {
     path: string | Middleware | ErrorMiddleware | Application | Router,
     ...handlers: (Middleware | ErrorMiddleware | Application | Router)[]
   ) {
-    if (path instanceof Application || path instanceof Router) {
-      this._router.use("/", (req, res, next) => path.handle(req, res, next));
-    } else if (typeof path === "string") {
-      handlers.forEach((h) => {
-        if (h instanceof Application || h instanceof Router) {
-          this._router.use(path, (req, res, next) => h.handle(req, res, next));
-        } else {
-          this._router.use(path, h as Middleware);
-        }
-      });
+    if (typeof path === "string") {
+      if (handlers[0] instanceof Router) {
+        this._router.mount(path, handlers[0]);
+      } else {
+        this._router.use(path, ...(handlers as Middleware[]));
+      }
     } else {
-      const fns = [path, ...handlers];
-      fns.forEach((h) => {
-        if (h instanceof Application || h instanceof Router) {
-          this._router.use("/", (req, res, next) => h.handle(req, res, next));
-        } else {
-          this._router.use("/", h as Middleware);
-        }
-      });
+      this._router.use("/", ...([path, ...handlers] as Middleware[]));
     }
     return this;
   }
@@ -121,6 +119,12 @@ export class Application {
   patch(path: string, ...handlers: Middleware[]) {
     return this.route("PATCH", path, ...handlers);
   }
+  head(path: string, ...handlers: Middleware[]) {
+    return this.route("HEAD", path, ...handlers);
+  }
+  options(path: string, ...handlers: Middleware[]) {
+    return this.route("OPTIONS", path, ...handlers);
+  }
 
   // Plugin System
   plugin(plugin: Plugin): this {
@@ -130,7 +134,11 @@ export class Application {
   }
 
   // Extension System (Non-monkey patching)
-  extend(type: "request" | "response", name: string, fn: Function): this {
+  extend(
+    type: "request" | "response" | "application",
+    name: string,
+    fn: Function
+  ): this {
     this._extensions[type].set(name, fn);
     return this;
   }
@@ -261,6 +269,12 @@ export class Application {
     });
   }
 
+  private _applyApplicationExtensions() {
+    this._extensions.application.forEach((fn, name) => {
+      (this as any)[name] = fn.bind(this);
+    });
+  }
+
   /**
    * Main entry point from server adapters
    */
@@ -308,7 +322,9 @@ export class Application {
         await this.runOnErrorHooks(err, arcanajsReq, arcanajsRes);
         console.error(err);
         if (!arcanajsRes.sent) {
-          await arcanajsRes.status(500).json({ error: "Internal Server Error" });
+          await arcanajsRes
+            .status(500)
+            .json({ error: "Internal Server Error" });
         }
       } finally {
         if (arcanajsRes.sent) {

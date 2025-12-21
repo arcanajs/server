@@ -98,7 +98,7 @@ export class RadixTree {
     method: HttpMethod,
     path: string,
     handlers: Middleware[],
-    constraints?: Record<string, ParamConstraint>
+    constraints?: Record<string, RegExp> | Record<string, ParamConstraint>
   ): void {
     const paramNames: string[] = [];
     const segments = this._parsePath(path, paramNames);
@@ -110,11 +110,22 @@ export class RadixTree {
       node = this._insert(node, segment);
     }
 
+    const routeConstraints: Record<string, ParamConstraint> = {};
+    if (constraints) {
+      for (const [name, value] of Object.entries(constraints)) {
+        if (value instanceof RegExp) {
+          routeConstraints[name] = { pattern: value };
+        } else {
+          routeConstraints[name] = value;
+        }
+      }
+    }
+
     const route: RouteDefinition = {
       method,
       path,
       handlers,
-      constraints,
+      constraints: routeConstraints,
       paramNames,
     };
 
@@ -127,38 +138,18 @@ export class RadixTree {
    * Find a matching route
    */
   find(method: HttpMethod, path: string): RouteMatch | null {
-    const params: Record<string, string> = {};
     const segments = path.split("/").filter(Boolean);
+    const match = this._search(this._root, method, segments, 0, {});
 
-    const node = this._search(this._root, segments, 0, params);
-    if (!node) return null;
-
-    // Check for exact method match
-    let route = node.routes.get(method);
-
-    // Check for USE (middleware match)
-    if (!route) {
-      route = node.routes.get("USE" as HttpMethod);
-    }
-
-    if (!route) return null;
-
-    // Validate constraints
-    if (route.constraints) {
-      for (const [name, constraint] of Object.entries(route.constraints)) {
-        const value = params[name];
-        if (value !== undefined) {
-          if (constraint.pattern && !constraint.pattern.test(value)) {
-            return null;
-          }
-          if (constraint.validator && !constraint.validator(value)) {
-            return null;
-          }
-        }
+    if (match) {
+      // Check for USE middleware if no specific method matches
+      const route = match.node.routes.get(method) || match.node.routes.get("USE" as HttpMethod);
+      if (route) {
+        return { route, params: match.params };
       }
     }
 
-    return { route, params };
+    return null;
   }
 
   /**
@@ -288,44 +279,59 @@ export class RadixTree {
    */
   private _search(
     node: RadixNode,
+    method: HttpMethod,
     segments: string[],
     index: number,
     params: Record<string, string>
-  ): RadixNode | null {
-    // End of path
-    if (index >= segments.length) {
-      return node.routes.size > 0 ? node : null;
+  ): { node: RadixNode; params: Record<string, string> } | null {
+    if (index === segments.length) {
+      if (node.routes.has(method) || node.routes.has("USE" as HttpMethod)) {
+        const route = node.routes.get(method) || node.routes.get("USE" as HttpMethod);
+        if (route && route.constraints) {
+          for (const [pName, constraint] of Object.entries(route.constraints)) {
+            const value = params[pName];
+            if (value !== undefined) {
+              if (
+                (constraint.pattern && !constraint.pattern.test(value)) ||
+                (constraint.validator && !constraint.validator(value))
+              ) {
+                return null; // Constraint failed, invalid match.
+              }
+            }
+          }
+        }
+        return { node, params }; // All constraints passed.
+      }
+      return null;
     }
 
     const segment = segments[index];
+    const newIndex = index + 1;
 
-    // Try static match first (most specific)
-    const staticChild = node.children.get(segment[0]);
-    if (staticChild && segment.startsWith(staticChild.path)) {
-      const result = this._search(staticChild, segments, index + 1, params);
-      if (result) return result;
-    }
-
-    // Try all static children for exact match
-    for (const [, child] of node.children) {
+    // 1. Static routes
+    for (const child of node.children.values()) {
       if (child.path === segment) {
-        const result = this._search(child, segments, index + 1, params);
+        const result = this._search(child, method, segments, newIndex, params);
         if (result) return result;
       }
     }
 
-    // Try param match
+    // 2. Parametric routes
     if (node.paramChild) {
-      params[node.paramChild.paramName!] = segment;
-      const result = this._search(node.paramChild, segments, index + 1, params);
+      const paramName = node.paramChild.paramName!;
+      const newParams = { ...params, [paramName]: segment };
+      const result = this._search(node.paramChild, method, segments, newIndex, newParams);
       if (result) return result;
-      delete params[node.paramChild.paramName!];
     }
 
-    // Try wildcard match (catches rest of path)
+    // 3. Wildcard routes
     if (node.wildcardChild) {
-      params[node.wildcardChild.paramName!] = segments.slice(index).join("/");
-      return node.wildcardChild;
+      if (node.wildcardChild.routes.has(method) || node.wildcardChild.routes.has("USE" as HttpMethod)) {
+        return {
+          node: node.wildcardChild,
+          params: { ...params, [node.wildcardChild.paramName!]: segments.slice(index).join("/") },
+        };
+      }
     }
 
     return null;

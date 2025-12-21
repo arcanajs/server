@@ -53,7 +53,7 @@ export interface CorsOptions {
  */
 const DEFAULT_OPTIONS: CorsOptions = {
   origin: "*",
-  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
   allowedHeaders: [],
   exposedHeaders: [],
   credentials: false,

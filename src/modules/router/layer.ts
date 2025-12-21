@@ -23,34 +23,34 @@ export class Layer {
   constructor(
     path: string,
     method: HttpMethod,
-    handler: Middleware | ErrorMiddleware
+    handler: Middleware | ErrorMiddleware,
+    constraints?: RouteConstraints
   ) {
     this.path = path;
     this.method = method;
     this.handler = handler;
+    this.constraints = constraints;
     this.fast_slash = path === "*" || path === "/";
 
     // Build regex pattern with support for:
     // - :param (required parameter)
     // - :param? (optional parameter)
-    // - :param<pattern> (constrained parameter)
     // - * (wildcard)
     // - ** (catch-all)
     let pattern = path
       .replace(/\//g, "\\/")
       .replace(
-        /:(\w+)(?:<([^>]+)>)?(\?)?/g,
+        /:(\w+)(\?)?/g,
         (
           _,
           name: string,
-          constraint: string | undefined,
           optional: string | undefined
         ) => {
           this.keys.push(name);
           if (optional) {
             this.optional.add(name);
           }
-          const regex = constraint || "[^\\/]+";
+          const regex = "[^\\/]+"; // Default pattern
           return optional
             ? `(?:(?<${name}>${regex}))?`
             : `(?<${name}>${regex})`;
@@ -72,8 +72,16 @@ export class Layer {
    */
   match(path: string): boolean {
     if (this.path === "*") return true;
-    if (this.method === "USE" && path.startsWith(this.path)) return true;
     if (this.fast_slash && path === "/") return true;
+    
+    // Special handling for USE middleware
+    if (this.method === "USE") {
+      // USE middleware can match prefixes and exact paths
+      if (path.startsWith(this.path)) return true;
+      // Also check if regex matches for more complex patterns
+      return this.regexp.test(path);
+    }
+    
     return this.regexp.test(path);
   }
 
@@ -103,6 +111,42 @@ export class Layer {
     }
 
     return params;
+  }
+
+  /**
+   * Validate extracted parameters against constraints
+   */
+  validateParams(params: Record<string, string>): boolean {
+    if (!this.constraints) return true;
+
+    for (const [key, constraint] of Object.entries(this.constraints)) {
+      const value = params[key];
+      
+      // Skip validation for optional parameters that are not provided
+      if (this.optional.has(key) && value === undefined) {
+        continue;
+      }
+
+      if (value !== undefined) {
+        // Check if constraint is a RegExp pattern
+        if (constraint instanceof RegExp) {
+          if (!constraint.test(value)) {
+            return false;
+          }
+        }
+        // Check if constraint is a validator function
+        else if (typeof constraint === 'function') {
+          if (!constraint(value)) {
+            return false;
+          }
+        }
+      } else if (!this.optional.has(key)) {
+        // Required parameter is missing
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

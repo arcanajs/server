@@ -6,11 +6,12 @@
 import cookie from "cookie";
 import signature from "cookie-signature";
 import type {
-  CookieOptions,
   Response as ResponseInterface,
   SendFileOptions,
   Request,
 } from "../../types";
+import { CookieOptions } from "../../plugins/cookie";
+
 
 export type { SendFileOptions };
 
