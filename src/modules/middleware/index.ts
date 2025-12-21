@@ -1,10 +1,9 @@
 /**
  * ArcanaJS Middleware Module
- */
+ **/
 
 export {
   MiddlewareEngine,
-  MiddlewareModule,
   catchErrors,
   compose,
   timeout,

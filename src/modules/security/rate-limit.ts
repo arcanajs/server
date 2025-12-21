@@ -1,7 +1,6 @@
 /**
  * ArcanaJS Rate Limiting Middleware
  *
- * Protects against brute-force attacks and DoS by limiting request rates.
  */
 
 import type { Middleware, NextFunction, Request, Response } from "../../types";

@@ -1,8 +1,8 @@
 /**
  * ArcanaJS Router Module
- */
+ **/
 
-export { Router, RouterModule } from "./router";
+export { Router } from "./router";
 export type {
   RouteConstraints,
   RouteGroupCallback,

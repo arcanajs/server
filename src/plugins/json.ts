@@ -126,6 +126,8 @@ function byteLimit(limit: string | number): number {
 
 export const jsonPlugin = (options?: JsonOptions) => ({
   name: "json",
+  version: "1.0.0",
+  
   install(app: Application) {
     app.use(json(options));
   },

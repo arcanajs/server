@@ -5,13 +5,13 @@
 
 import cookie from "cookie";
 import signature from "cookie-signature";
+import { CookieOptions } from "../../plugins/cookie";
 import type {
+  Request,
   Response as ResponseInterface,
   SendFileOptions,
-  Request,
 } from "../../types";
-import { CookieOptions } from "../../plugins/cookie";
-
+import { Application } from "../../core/application";
 
 export type { SendFileOptions };
 
@@ -24,7 +24,7 @@ export class ResponseImpl implements ResponseInterface {
   private _body: any = null;
   private _sent: boolean = false;
   private _resolve: (res: globalThis.Response) => void;
-  private _app: any;
+  private _app: Application;
   private _deferred: (() => void | Promise<void>)[] = [];
 
   // Reference to request (set by Application)
@@ -35,7 +35,7 @@ export class ResponseImpl implements ResponseInterface {
 
   [key: string]: any;
 
-  constructor(resolve: (res: globalThis.Response) => void, app: any) {
+  constructor(resolve: (res: globalThis.Response) => void, app: Application) {
     this._resolve = resolve;
     this._app = app;
 

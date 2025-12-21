@@ -4,6 +4,7 @@
  * The core middleware that manages sessions across requests.
  */
 
+import { SessionOptions } from "../../plugins/session";
 import type { Middleware, NextFunction, Request, Response } from "../../types";
 import { SessionImpl } from "./session";
 import { SessionCookieImpl } from "./session-cookie";
@@ -13,7 +14,6 @@ import {
   unsignSessionId,
 } from "./session-id";
 import { MemoryStore } from "./stores/memory-store";
-import type { SessionOptions } from "./types";
 
 /**
  * session - Create session middleware

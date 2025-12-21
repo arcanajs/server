@@ -4,7 +4,6 @@
  * Professional middleware system with ordering, composition, and async support.
  */
 
-import type { ArcanaJSKernel, ArcanaJSModule } from "../../core/kernel";
 import type {
   ErrorMiddleware,
   Middleware,
@@ -248,31 +247,6 @@ export class MiddlewareEngine {
   private _matchPath(requestPath: string, pattern: string): boolean {
     if (pattern === "/" || pattern === "*") return true;
     return requestPath.startsWith(pattern);
-  }
-}
-
-/**
- * MiddlewareModule - ArcanaJS module for middleware system
- */
-export class MiddlewareModule implements ArcanaJSModule {
-  readonly name = "middleware";
-  readonly version = "1.0.0";
-
-  private _engine: MiddlewareEngine;
-
-  constructor() {
-    this._engine = new MiddlewareEngine();
-  }
-
-  init(kernel: ArcanaJSKernel): void {
-    // Module is ready
-  }
-
-  /**
-   * Get the middleware engine
-   */
-  get engine(): MiddlewareEngine {
-    return this._engine;
   }
 }
 

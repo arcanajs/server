@@ -192,6 +192,8 @@ export const favicon = (options?: FaviconOptions): Middleware => {
 
 export const faviconPlugin = (options?: FaviconOptions) => ({
   name: "favicon",
+  version: "1.0.0",
+  
   install(app: Application) {
     app.use(favicon(options));
   },

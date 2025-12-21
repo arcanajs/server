@@ -1,7 +1,6 @@
 /**
  * ArcanaJS Body Size Limit Middleware
  *
- * Protects against large payload attacks by limiting request body size.
  */
 
 import type { Middleware, NextFunction, Request, Response } from "../../types";

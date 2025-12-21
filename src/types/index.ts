@@ -1,3 +1,4 @@
+import { Application } from "../core/application";
 import { CookieOptions } from "../plugins/cookie";
 
 export type HttpMethod =
@@ -28,7 +29,7 @@ export interface Request {
   query: Record<string, string | string[]>;
   headers: Headers;
   body: any;
-  app: any;
+  app: Application;
   cookies: Record<string, any>;
   signedCookies: Record<string, any>;
   secret?: string | string[];
@@ -126,7 +127,8 @@ export type ErrorMiddleware = (
 
 export interface Plugin {
   name: string;
-  install: (app: any) => void;
+  version: string;
+  install: (app: Application) => void;
 }
 
 export type LifecycleHook =
@@ -138,5 +140,3 @@ export type LifecycleHook =
   | "afterResponse"
   | "onError"
   | "onSuccess";
-
-

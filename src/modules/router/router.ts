@@ -4,7 +4,6 @@
  * Advanced routing with groups, constraints, prefixes, and optional parameters.
  */
 
-import type { ArcanaJSKernel, ArcanaJSModule } from "../../core/kernel";
 import type {
   ErrorMiddleware,
   HttpMethod,
@@ -420,27 +419,5 @@ export class Router {
     }
 
     return result;
-  }
-}
-
-/**
- * RouterModule - ArcanaJS module for routing
- */
-export class RouterModule implements ArcanaJSModule {
-  readonly name = "router";
-  readonly version = "1.0.0";
-
-  private _router: Router;
-
-  constructor(options?: RouterOptions) {
-    this._router = new Router(options);
-  }
-
-  init(kernel: ArcanaJSKernel): void {
-    // Module is ready
-  }
-
-  get router(): Router {
-    return this._router;
   }
 }

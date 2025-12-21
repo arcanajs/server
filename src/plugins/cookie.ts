@@ -158,10 +158,12 @@ export const cookiePlugin = (options?: {
   defaults?: CookieOptions;
 }) => ({
   name: "cookie",
+  version: "1.0.0",
+  
   install(app: Application) {
-    console.log('Cookie plugin install() called');
+    console.log("Cookie plugin install() called");
     const secret = options?.secret || process.env.COOKIE_SECRET;
-    console.log('Installing cookie parser with secret:', !!secret);
+    console.log("Installing cookie parser with secret:", !!secret);
     app.use(cookieParser(secret));
 
     if (options?.defaults) {

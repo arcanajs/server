@@ -1,7 +1,6 @@
 /**
  * ArcanaJS Helmet Security Headers
  *
- * Helmet-like middleware that sets security headers to protect against common vulnerabilities.
  */
 
 import type { Middleware, NextFunction, Request, Response } from "../../types";

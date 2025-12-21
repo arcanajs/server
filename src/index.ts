@@ -27,6 +27,7 @@ import {
   resetFaviconMetrics,
 } from "./plugins/favicon";
 import { JsonOptions, jsonPlugin } from "./plugins/json";
+import { SessionOptions, sessionPlugin } from "./plugins/session";
 import { ServeStaticOptions, staticPlugin } from "./plugins/static";
 import { WebSocketOptions, websocketPlugin } from "./plugins/websocket";
 
@@ -59,6 +60,7 @@ arcanajs.cookie = cookiePlugin;
 arcanajs.static = staticPlugin;
 arcanajs.favicon = faviconPlugin;
 arcanajs.ws = websocketPlugin;
+arcanajs.session = sessionPlugin;
 
 // Export favicon utilities
 arcanajs.getFaviconMetrics = getFaviconMetrics;
@@ -78,26 +80,13 @@ export type {
   FaviconOptions,
   JsonOptions,
   ServeStaticOptions,
+  SessionOptions,
   WebSocketOptions,
 };
 
 // ============================================================================
 // CORE EXPORTS
 // ============================================================================
-
-// Kernel system
-export {
-  ArcanaJSKernel,
-  createKernel,
-  ModuleLoader,
-  moduleLoader,
-} from "./core/kernel";
-export type {
-  ArcanaJSModule,
-  KernelEvent,
-  KernelOptions,
-  ModuleFactory,
-} from "./core/kernel";
 
 // Error handling
 export {
@@ -134,7 +123,7 @@ export {
 // ============================================================================
 
 // Router module
-export { Layer, RadixTree, RouterModule } from "./modules/router";
+export { Layer, RadixTree } from "./modules/router";
 export type {
   ParamConstraint,
   RouteConstraints,
@@ -149,20 +138,11 @@ export {
   catchErrors,
   compose,
   MiddlewareEngine,
-  MiddlewareModule,
   timeout,
   unless,
   when,
 } from "./modules/middleware";
 export type { MiddlewareOptions } from "./modules/middleware";
-
-// Context module
-export { RequestImpl, ResponseImpl } from "./modules/context";
-export type { AcceptsResult, SendFileOptions } from "./modules/context";
-
-// HTTP module
-export { HttpModule, HttpServer, serve } from "./modules/http";
-export type { ServerOptions } from "./modules/http";
 
 // Security module
 export {
@@ -180,7 +160,6 @@ export {
   noSniff,
   rateLimit,
   referrerPolicy,
-  SecurityModule,
   slowDown,
   textWithLimit,
 } from "./modules/security";
@@ -198,13 +177,12 @@ export type {
 } from "./modules/security";
 
 // Session module
-export { FileStore, MemoryStore, RedisStore, session } from "./modules/session";
+export { FileStore, MemoryStore, RedisStore } from "./modules/session";
 export type {
   RedisClient,
   Session,
   SessionCookieOptions,
   SessionData,
-  SessionOptions,
   SessionStore,
 } from "./modules/session";
 

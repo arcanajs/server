@@ -2,8 +2,6 @@
  * ArcanaJS Security Module
  */
 
-import type { ArcanaJSKernel, ArcanaJSModule } from "../../core/kernel";
-
 // Helmet exports
 export {
   contentSecurityPolicy,
@@ -50,18 +48,5 @@ export type {
   Session,
   SessionCookieOptions,
   SessionData,
-  SessionOptions,
   SessionStore,
 } from "../session";
-
-/**
- * SecurityModule - ArcanaJS module for security features
- */
-export class SecurityModule implements ArcanaJSModule {
-  readonly name = "security";
-  readonly version = "1.0.0";
-
-  init(kernel: ArcanaJSKernel): void {
-    // Security module is ready
-  }
-}

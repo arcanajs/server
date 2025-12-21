@@ -171,6 +171,8 @@ export const serveStatic = (
 
 export const staticPlugin = (root: string, options?: ServeStaticOptions) => ({
   name: "static",
+  version: "1.0.0",
+  
   install(app: Application) {
     app.use(serveStatic(root, options));
   },

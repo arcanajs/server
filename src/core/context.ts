@@ -7,6 +7,7 @@ import { createReadStream, stat } from "fs-extra";
 import { lookup } from "mime-types";
 import { basename, resolve } from "node:path";
 import type { SendFileOptions } from "../types/index";
+import { Application } from "./application";
 
 export class RequestImpl implements Request {
   public ip: string;
@@ -25,14 +26,14 @@ export class RequestImpl implements Request {
   public query: Record<string, string | string[]> = {};
   public headers: Headers;
   public body: any = null;
-  public app: any;
+  public app: Application;
   public cookies: Record<string, any> = {};
   public signedCookies: Record<string, any> = {};
   public secret?: string | string[];
   public _nativeRequest: globalThis.Request;
   [key: string]: any;
 
-  constructor(nativeRequest: globalThis.Request, app: any) {
+  constructor(nativeRequest: globalThis.Request, app: Application) {
     const url = new URL(nativeRequest.url);
     this._nativeRequest = nativeRequest;
     this.method = nativeRequest.method;
@@ -132,12 +133,12 @@ export class ResponseImpl implements Response {
   private _sent: boolean = false;
   private _deferred: (() => void | Promise<void>)[] = [];
   private _resolve: (res: globalThis.Response) => void;
-  private _app: any;
+  private _app: Application;
   public req: Request;
 
   constructor(
     resolve: (res: globalThis.Response) => void,
-    app: any,
+    app: Application,
     req: Request
   ) {
     this._resolve = resolve;

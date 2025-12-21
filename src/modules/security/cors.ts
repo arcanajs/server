@@ -1,7 +1,6 @@
 /**
  * ArcanaJS CORS Middleware
  *
- * Cross-Origin Resource Sharing configuration.
  */
 
 import type { Middleware, NextFunction, Request, Response } from "../../types";

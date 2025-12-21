@@ -3,10 +3,8 @@
  *
  */
 
-import type {
-  Request as RequestInterface,
-  AcceptsResult,
-} from "../../types";
+import { Application } from "../../core/application";
+import type { AcceptsResult, Request as RequestInterface } from "../../types";
 
 export type { AcceptsResult };
 
@@ -23,7 +21,7 @@ export class RequestImpl implements RequestInterface {
   public query: Record<string, string | string[]> = {};
   public headers: Headers;
   public body: any = null;
-  public app: any;
+  public app: Application;
   public cookies: Record<string, any> = {};
   public signedCookies: Record<string, any> = {};
   public secret?: string | string[];
@@ -37,7 +35,7 @@ export class RequestImpl implements RequestInterface {
   public _nativeRequest: globalThis.Request;
   [key: string]: any;
 
-  constructor(nativeRequest: globalThis.Request, app: any) {
+  constructor(nativeRequest: globalThis.Request, app: Application) {
     const url = new URL(nativeRequest.url);
     this._nativeRequest = nativeRequest;
     this.method = nativeRequest.method;
