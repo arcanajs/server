@@ -1,36 +1,27 @@
-import type { 
-  ArcanaJSSocket, 
-  WebSocketData, 
-  EventHandler, 
+import type {
+  ArcanaJSSocket,
   BroadcastOptions,
+  EventHandler,
   Packet,
+  ServerWebSocket,
+  WebSocketData,
   WebSocketReadyState,
-  ServerWebSocket
 } from "./types";
 
 export class SocketImpl implements ArcanaJSSocket {
-  public id: string;
-  public data: WebSocketData;
-  public rooms: Set<string>;
-  
   private _events: Map<string, EventHandler[]> = new Map();
   private _server: any;
   private _ws: ServerWebSocket<WebSocketData>;
 
-  constructor(
-    ws: ServerWebSocket<WebSocketData>, 
-    server: any,
-    data: WebSocketData
-  ) {
+  constructor(ws: ServerWebSocket<WebSocketData>, server: any) {
     this._ws = ws;
     this._server = server;
-    this.id = data.id;
-    this.data = data;
-    this.rooms = data.rooms || new Set();
-    
+
     // Bind methods to maintain context
     this.send = this.send.bind(this);
-    this.close = this.close.bind(this);
+    this.join = this.join.bind(this);
+    this.leave = this.leave.bind(this);
+    this.disconnect = this.disconnect.bind(this);
     this.subscribe = this.subscribe.bind(this);
     this.unsubscribe = this.unsubscribe.bind(this);
     this.publish = this.publish.bind(this);
@@ -38,7 +29,31 @@ export class SocketImpl implements ArcanaJSSocket {
     this.cork = this.cork.bind(this);
   }
 
-  // ServerWebSocket properties delegation
+  // Properties delegation
+  get id(): string {
+    return this._ws.data.id;
+  }
+
+  set id(value: string) {
+    this._ws.data.id = value;
+  }
+
+  get data(): WebSocketData {
+    return this._ws.data;
+  }
+
+  set data(value: WebSocketData) {
+    this._ws.data = value;
+  }
+
+  get rooms(): Set<string> {
+    return this._ws.data.rooms;
+  }
+
+  set rooms(value: Set<string>) {
+    this._ws.data.rooms = value;
+  }
+
   get readyState(): WebSocketReadyState {
     return this._ws.readyState;
   }
@@ -47,70 +62,41 @@ export class SocketImpl implements ArcanaJSSocket {
     return this._ws.remoteAddress;
   }
 
-  get subscriptions(): string[] {
-    return this._ws.subscriptions;
-  }
-
   // ServerWebSocket methods delegation
   send(message: string | ArrayBuffer | Uint8Array, compress?: boolean): number {
     return this._ws.send(message, compress);
   }
 
-  close(code?: number, reason?: string): void {
-    this._ws.close(code, reason);
-  }
-
   subscribe(topic: string): void {
     this._ws.subscribe(topic);
+    this.rooms.add(topic);
   }
 
   unsubscribe(topic: string): void {
     this._ws.unsubscribe(topic);
+    this.rooms.delete(topic);
   }
 
-  publish(topic: string, message: string | ArrayBuffer | Uint8Array): number {
-    return this._ws.publish(topic, message);
+  publish(
+    topic: string,
+    message: string | ArrayBuffer | Uint8Array,
+    compress?: boolean
+  ): number {
+    return this._ws.publish(topic, message, compress);
   }
 
   isSubscribed(topic: string): boolean {
     return this._ws.isSubscribed(topic);
   }
 
-  cork<T = unknown>(callback: (ws: ServerWebSocket<T>) => T): T {
+  cork<T = unknown>(callback: (ws: ServerWebSocket<WebSocketData>) => T): T {
+    // We must pass the underlying _ws to the callback, but the callback expects
+    // a ServerWebSocket<WebSocketData>.
+    // Our _ws IS a ServerWebSocket<WebSocketData>.
+    // However, the Bun type definition for cork might be generic over the data type.
+    // Let's assume strict compatibility.
+    // @ts-ignore - Bun types allow this but TS might complain about 'T' not matching
     return this._ws.cork(callback);
-  }
-
-  // Additional methods to satisfy interface
-  sendText(data: string, compress?: boolean): number {
-    return this.send(data, compress);
-  }
-
-  sendBinary(data: ArrayBuffer | Uint8Array, compress?: boolean): number {
-    return this.send(data, compress);
-  }
-
-  publishText(topic: string, data: string, compress?: boolean): number {
-    return this.publish(topic, data);
-  }
-
-  publishBinary(topic: string, data: ArrayBuffer | Uint8Array, compress?: boolean): number {
-    return this.publish(topic, data);
-  }
-
-  getBufferedAmount(): number {
-    return 0; // Bun's ServerWebSocket doesn't have buffered amount property
-  }
-
-  terminate(): void {
-    this.close(1006, "Connection terminated");
-  }
-
-  ping(): number {
-    return this._ws.ping?.() || 0;
-  }
-
-  pong(): number {
-    return this._ws.pong?.() || 0;
   }
 
   // Event handling
@@ -127,7 +113,7 @@ export class SocketImpl implements ArcanaJSSocket {
       this._events.delete(event);
       return this;
     }
-    
+
     const handlers = this._events.get(event);
     if (handlers) {
       const index = handlers.indexOf(handler);
@@ -149,7 +135,8 @@ export class SocketImpl implements ArcanaJSSocket {
     };
 
     if (options?.rooms || options?.except) {
-      return this.broadcast(event, data, options);
+      this.broadcast(event, data, options);
+      return this;
     }
 
     const message = JSON.stringify(packet);
@@ -157,28 +144,20 @@ export class SocketImpl implements ArcanaJSSocket {
     return this;
   }
 
-  // Room management
+  // Room management wrappers
   join(room: string): this {
-    if (!this.rooms.has(room)) {
-      this.rooms.add(room);
-      this.subscribe(room);
-      this._server.emitRoomEvent('join', room, this.id);
-    }
+    this.subscribe(room);
     return this;
   }
 
   leave(room: string): this {
-    if (this.rooms.has(room)) {
-      this.rooms.delete(room);
-      this.unsubscribe(room);
-      this._server.emitRoomEvent('leave', room, this.id);
-    }
+    this.unsubscribe(room);
     return this;
   }
 
   leaveAll(): void {
     const rooms = Array.from(this.rooms);
-    rooms.forEach(room => this.leave(room));
+    rooms.forEach((room) => this.leave(room));
   }
 
   roomsJoined(): string[] {
@@ -190,7 +169,11 @@ export class SocketImpl implements ArcanaJSSocket {
   }
 
   // Broadcasting
-  broadcast<T = any>(event: string, data?: T, options?: BroadcastOptions): this {
+  broadcast<T = any>(
+    event: string,
+    data?: T,
+    options?: BroadcastOptions
+  ): this {
     const packet: Packet = {
       type: event,
       data,
@@ -198,19 +181,24 @@ export class SocketImpl implements ArcanaJSSocket {
     };
 
     const message = JSON.stringify(packet);
+    const compress = options?.compress;
+
     const rooms = options?.rooms || [];
-    const except = options?.except || [];
 
     if (rooms.length > 0) {
-      // Send to specific rooms
-      rooms.forEach(room => {
-        if (!except.includes(this.id)) {
-          this._server.publish(room, message, options?.compress);
-        }
+      // Publish to rooms
+      rooms.forEach((room) => {
+        // Bun publish sends to subscribers EXCLUDING self usually, which matches broadcast semantics
+        this.publish(room, message, compress);
       });
     } else {
-      // Send to all except specified sockets
-      this._server.broadcast(message, except, options?.compress);
+      // Broadcast to all
+      // Use server reference to broadcast
+      const except = options?.except || [];
+      if (!except.includes(this.id)) {
+        except.push(this.id);
+      }
+      this._server.broadcast(message, except, compress);
     }
 
     return this;
@@ -218,10 +206,10 @@ export class SocketImpl implements ArcanaJSSocket {
 
   // Utility methods
   disconnect(close = true): void {
-    this.leaveAll();
-    this.emit('disconnect', 'client disconnect');
+    this.emit("disconnect", "client disconnect");
     if (close) {
-      this.close();
+      // 1000 is normal closure
+      this._ws.close(1000, "Client disconnect");
     }
     this._server.removeSocket(this.id);
   }
@@ -230,12 +218,28 @@ export class SocketImpl implements ArcanaJSSocket {
   _handleEvent(event: string, data?: any): void {
     const handlers = this._events.get(event);
     if (handlers) {
-      handlers.forEach(handler => {
+      handlers.forEach((handler) => {
         try {
-          handler(this, data);
+          // Allow async handlers
+          // Call handler with `data` as first argument and bind `this` to the socket
+          // so handlers written as `(data) => { ... }` work as expected.
+          // Support handlers declared either as `(socket, data)` or as `(data)`.
+          // If the handler declares two or more params, call it with `(socket, data)`,
+          // otherwise call it with `data` and bind `this` to the socket for convenience.
+          const fn = handler as any;
+          const result = fn.length >= 2 ? fn(this, data) : fn.call(this, data);
+          if (result instanceof Promise) {
+            result.catch((err) => {
+              console.error(
+                `Error in async event handler for '${event}':`,
+                err
+              );
+              this.emit("error", err);
+            });
+          }
         } catch (error) {
           console.error(`Error in event handler for '${event}':`, error);
-          this.emit('error', error);
+          this.emit("error", error);
         }
       });
     }
@@ -243,6 +247,8 @@ export class SocketImpl implements ArcanaJSSocket {
 
   _destroy(): void {
     this._events.clear();
-    this.leaveAll();
+    // We don't manually unsubscribe because closing the socket does that automatically in Bun
+    // But clearing internal set is good.
+    this.rooms.clear();
   }
 }

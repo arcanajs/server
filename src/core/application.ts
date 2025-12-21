@@ -25,8 +25,8 @@ export class Application {
   private _hooks = new Map<string, Function[]>();
 
   public locals: Record<string, any> = {};
-  public websocket?: any;
-  public io?: any;
+  // public websocket?: any; // Removed to allow strict plugin typing
+  // public io?: any; // Removed to allow strict plugin typing
   public server?: any; // Store Bun server instance for IP detection
 
   constructor() {

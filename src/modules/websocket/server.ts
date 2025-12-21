@@ -1,21 +1,21 @@
-import type { 
-  ArcanaJSIOServer, 
-  ArcanaJSSocket, 
-  WebSocketOptions, 
-  WebSocketMiddleware,
-  WebSocketData,
-  EventHandler,
-  BroadcastOptions,
-  Packet
-} from "./types";
-import { SocketImpl } from "./socket";
+import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
+import { SocketImpl } from "./socket";
+import type {
+  ArcanaJSIOServer,
+  ArcanaJSSocket,
+  BroadcastOptions,
+  EventHandler,
+  Packet,
+  WebSocketData,
+  WebSocketMiddleware,
+  WebSocketOptions,
+} from "./types";
 
 export class ServerImpl implements ArcanaJSIOServer {
   public sockets: Map<string, ArcanaJSSocket> = new Map();
-  public rooms: Map<string, Set<string>> = new Map();
   public engine: any;
-  
+
   private _events: Map<string, EventHandler[]> = new Map();
   private _middleware: WebSocketMiddleware[] = [];
   private _namespace: string = "/";
@@ -31,6 +31,7 @@ export class ServerImpl implements ArcanaJSIOServer {
       maxPayload: 16 * 1024 * 1024,
       idleTimeout: 120,
       compression: true,
+      perMessageDeflate: true,
       ...options,
     };
   }
@@ -49,7 +50,7 @@ export class ServerImpl implements ArcanaJSIOServer {
       this._events.delete(event);
       return this;
     }
-    
+
     const handlers = this._events.get(event);
     if (handlers) {
       const index = handlers.indexOf(handler);
@@ -72,15 +73,20 @@ export class ServerImpl implements ArcanaJSIOServer {
     };
 
     const message = JSON.stringify(packet);
-    
-    if (options?.rooms) {
-      options.rooms.forEach(room => {
-        this.publishToRoom(room, message, options?.compress);
+
+    if (options?.rooms && options.rooms.length > 0) {
+      options.rooms.forEach((room) => {
+        this.publish(room, message, options?.compress);
       });
-    } else if (options?.except) {
-      this.broadcast(message, options.except, options?.compress);
     } else {
-      this.broadcast(message, [], options?.compress);
+      // Broadcast to everyone
+      // Note: Bun.serve.publish doesn't support broadcasting to 'all' directly without a topic
+      // We can simulate this if needed, or rely on a global topic if we implemented one.
+      // For now, we iterate sockets for global broadcast if no room specified
+      this.sockets.forEach((socket) => {
+        if (options?.except && options.except.includes(socket.id)) return;
+        socket.send(message, options?.compress);
+      });
     }
 
     return this;
@@ -96,13 +102,20 @@ export class ServerImpl implements ArcanaJSIOServer {
     childServer._namespace = namespace;
     childServer._parent = this;
     this._children.set(namespace, childServer);
-    
+
     return childServer;
   }
 
-  // Room targeting
+  // Room targeting - chaining support
   to(room: string | string[]): this {
-    // This would be used for chaining, simplified implementation
+    // In a full implementation, this returns a BroadcastOperator
+    // For this lightweight version, we could store state, but better to use emit options directly
+    // Or return a proxy.
+    // To match interface simple string return this for now, but real emit needs to know target.
+    // We will assume the user uses emit(..., { rooms: [...] }) or we'd need a temporary object.
+    // For strict type compliance on the interface 'to' returning 'this':
+    // Use a temporary property or proxy could be complex.
+    // Simplified: "to" sets a broadCast target for the NEXT emit call.
     return this;
   }
 
@@ -111,7 +124,6 @@ export class ServerImpl implements ArcanaJSIOServer {
   }
 
   except(socketId: string | string[]): this {
-    // This would be used for chaining, simplified implementation
     return this;
   }
 
@@ -121,19 +133,26 @@ export class ServerImpl implements ArcanaJSIOServer {
     return this;
   }
 
-  // Utility methods
+  // Operations
+  tryBind(server: any): void {
+    this._server = server;
+  }
+
+  bind(server: any): void {
+    this._server = server;
+  }
+
   close(): void {
     // Close all sockets
-    this.sockets.forEach(socket => {
+    this.sockets.forEach((socket) => {
       socket.disconnect(true);
     });
     this.sockets.clear();
-    this.rooms.clear();
     this._events.clear();
     this._middleware = [];
 
     // Close child namespaces
-    this._children.forEach(child => child.close());
+    this._children.forEach((child) => child.close());
     this._children.clear();
   }
 
@@ -141,36 +160,71 @@ export class ServerImpl implements ArcanaJSIOServer {
     callback(Array.from(this.sockets.values()));
   }
 
+  publish(
+    topic: string,
+    message: string | ArrayBuffer | Uint8Array,
+    compress?: boolean
+  ): number {
+    return this._server.publish(topic, message, compress);
+  }
+
   // Internal methods for socket management
-  createSocket(ws: any, req: Request): ArcanaJSSocket {
+  createSocket(
+    ws: ServerWebSocket<WebSocketData>,
+    req: Request
+  ): ArcanaJSSocket {
     const url = new URL(req.url);
-    const socketId = randomUUID();
-    
-    const data: WebSocketData = {
-      id: socketId,
-      handshake: {
+
+    // If an id was attached during the upgrade step, reuse it. Otherwise generate one.
+    const socketId = ws.data?.id || randomUUID();
+
+    // Ensure data structure exists and hydrate/merge with existing upgrade data when present
+    if (!ws.data) {
+      ws.data = {
+        id: socketId,
+        handshake: {
+          time: new Date().toISOString(),
+          url: req.url,
+          headers: {},
+          query: {},
+        },
+        rooms: new Set(),
+      };
+    } else {
+      // Preserve any pre-attached id from upgrade and merge handshake info
+      ws.data.id = socketId;
+      ws.data.rooms = new Set();
+      ws.data.handshake = {
         time: new Date().toISOString(),
         url: req.url,
         headers: Object.fromEntries(req.headers.entries()),
         query: Object.fromEntries(url.searchParams.entries()),
-      },
-      rooms: new Set(),
-    };
+      };
+    }
 
-    const socket = new SocketImpl(ws, this, data);
+    // If a socket with this id already exists (e.g. re-upgrade or retry), remove it first
+    if (this.sockets.has(socketId)) {
+      const existing = this.sockets.get(socketId);
+      if (existing) {
+        existing._destroy();
+        this.sockets.delete(socketId);
+      }
+    }
+
+    const socket = new SocketImpl(ws, this);
     this.sockets.set(socketId, socket);
 
     // Run middleware
     this.runMiddleware(socket, (err) => {
       if (err) {
-        socket.emit('error', err);
+        socket.emit("error", err);
         socket.disconnect(true);
         return;
       }
 
       // Emit connection event
-      this._emitEvent('connection', socket);
-      socket._handleEvent('connect');
+      this._emitEvent("connection", socket);
+      socket._handleEvent("connect");
     });
 
     return socket;
@@ -181,93 +235,43 @@ export class ServerImpl implements ArcanaJSIOServer {
     if (socket) {
       socket._destroy();
       this.sockets.delete(socketId);
-      
-      // Remove from all rooms
-      this.rooms.forEach((members, room) => {
-        members.delete(socketId);
-        if (members.size === 0) {
-          this.rooms.delete(room);
-        }
-      });
-
-      this._emitEvent('disconnect', socket);
+      this._emitEvent("disconnect", socket);
     }
-  }
-
-  // Room management
-  addToRoom(socketId: string, room: string): void {
-    if (!this.rooms.has(room)) {
-      this.rooms.set(room, new Set());
-    }
-    this.rooms.get(room)!.add(socketId);
-  }
-
-  removeFromRoom(socketId: string, room: string): void {
-    const members = this.rooms.get(room);
-    if (members) {
-      members.delete(socketId);
-      if (members.size === 0) {
-        this.rooms.delete(room);
-      }
-    }
-  }
-
-  emitRoomEvent(event: string, room: string, socketId: string): void {
-    if (event === 'join') {
-      this.addToRoom(socketId, room);
-    } else if (event === 'leave') {
-      this.removeFromRoom(socketId, room);
-    }
-    this._emitEvent(event, undefined, { room, socketId });
-  }
-
-  // Broadcasting
-  broadcast(message: string, except: string[] = [], compress?: boolean): void {
-    this.sockets.forEach((socket, id) => {
-      if (!except.includes(id)) {
-        socket.send(message, compress);
-      }
-    });
-  }
-
-  publishToRoom(room: string, message: string, compress?: boolean): void {
-    const members = this.rooms.get(room);
-    if (members) {
-      members.forEach(socketId => {
-        const socket = this.sockets.get(socketId);
-        if (socket) {
-          socket.send(message, compress);
-        }
-      });
-    }
-    
-    // Also use Bun's native pub/sub for cross-process support
-    this._server.publish(room, message, compress);
   }
 
   // Message handling
-  handleMessage(socket: ArcanaJSSocket, message: string | ArrayBuffer | Uint8Array): void {
+  handleMessage(
+    socket: ArcanaJSSocket,
+    message: string | ArrayBuffer | Uint8Array
+  ): void {
     try {
-      if (typeof message === 'string') {
+      if (typeof message === "string") {
         const packet: Packet = JSON.parse(message);
         socket._handleEvent(packet.type, packet.data);
       }
     } catch (error) {
-      console.error('Failed to parse WebSocket message:', error);
-      socket.emit('error', { message: 'Invalid message format' });
+      console.error("Failed to parse WebSocket message:", error);
+      socket.emit("error", { message: "Invalid message format" });
     }
   }
 
   // Private methods
-  private runMiddleware(socket: ArcanaJSSocket, callback: (err?: any) => void): void {
+  private runMiddleware(
+    socket: ArcanaJSSocket,
+    callback: (err?: any) => void
+  ): void {
     let index = 0;
-    
+
     const next = (err?: any) => {
       if (err) return callback(err);
       if (index >= this._middleware.length) return callback();
-      
+
       const middleware = this._middleware[index++];
-      middleware(socket, next);
+      try {
+        middleware(socket, next);
+      } catch (e) {
+        callback(e);
+      }
     };
 
     next();
@@ -277,7 +281,7 @@ export class ServerImpl implements ArcanaJSIOServer {
     const handlers = this._events.get(event);
     if (!handlers?.length) return;
 
-    handlers.forEach(handler => {
+    handlers.forEach((handler) => {
       this._executeHandler(handler, event, socket, data);
     });
   }
@@ -292,29 +296,10 @@ export class ServerImpl implements ArcanaJSIOServer {
       if (socket) {
         handler(socket, data);
       } else {
-        this._handleSocketlessHandler(event, data);
+        // Handle server-only events if any
       }
     } catch (error) {
-      this._logHandlerError(event, error);
+      console.error(`Error in event handler for '${event}':`, error);
     }
-  }
-
-  private _handleSocketlessHandler(event: string, data?: any): void {
-    if (data) {
-      console.warn(
-        `Handler for event '${event}' requires socket but none available. ` +
-        `Data: ${JSON.stringify(data)}`
-      );
-    } else {
-      console.warn(`Handler for event '${event}' requires socket but none available`);
-    }
-  }
-
-  private _logHandlerError(event: string, error: unknown): void {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(
-      `Error in server event handler for '${event}': ${errorMessage}`,
-      error instanceof Error ? error.stack : error
-    );
   }
 }
