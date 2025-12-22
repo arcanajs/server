@@ -1,17 +1,18 @@
 /**
- * ArcanaJS Enhanced Request
+ * ArcanaJS Request Implementation - Production Version
  *
+ * Enhanced request wrapper with proper lazy loading,
+ * caching, and Bun-specific optimizations
  */
 
-import { Application } from "../../core/application";
-import type { AcceptsResult, Request as RequestInterface } from "../../types";
-
-export type { AcceptsResult };
+import accepts from "accepts";
+import type { Application } from "../core/application";
+import type { Request } from "../types";
 
 /**
- * RequestImpl - Enhanced request implementation
+ * Request implementation with lazy property loading
  */
-export class RequestImpl implements RequestInterface {
+export class RequestImpl implements Request {
   // Core properties
   public method: string;
   public url: string;
@@ -26,17 +27,25 @@ export class RequestImpl implements RequestInterface {
   public signedCookies: Record<string, any> = {};
   public secret?: string | string[];
 
-  // Extended properties
+  // Native request reference
+  public _nativeRequest: globalThis.Request;
+
+  // Cached properties
   private _ip?: string;
   private _protocol?: "http" | "https";
   private _hostname?: string;
   private _subdomains?: string[];
+  private _xhr?: boolean;
+  private _secure?: boolean;
+  private _fresh?: boolean;
+  private _stale?: boolean;
+  private _accepts?: any; // accepts instance
 
-  public _nativeRequest: globalThis.Request;
   [key: string]: any;
 
   constructor(nativeRequest: globalThis.Request, app: Application) {
     const url = new URL(nativeRequest.url);
+
     this._nativeRequest = nativeRequest;
     this.method = nativeRequest.method;
     this.url = nativeRequest.url;
@@ -44,32 +53,25 @@ export class RequestImpl implements RequestInterface {
     this.headers = nativeRequest.headers;
     this.app = app;
 
-    // Parse query string
-    url.searchParams.forEach((value, key) => {
-      const existing = this.query[key];
-      if (existing) {
-        if (Array.isArray(existing)) {
-          existing.push(value);
-        } else {
-          this.query[key] = [existing, value];
-        }
-      } else {
-        this.query[key] = value;
-      }
-    });
+    // Parse query parameters
+    this._parseQueryString(url);
   }
 
+  // ============================================================================
+  // Property Getters (Lazy Loading)
+  // ============================================================================
+
   /**
-   * Get the client IP address
-   * Supports X-Forwarded-For and X-Real-IP headers when trust proxy is enabled
+   * Get client IP address
+   * Supports proxy headers when trust proxy is enabled
    */
   get ip(): string {
-    if (this._ip) return this._ip;
+    if (this._ip !== undefined) return this._ip;
 
     const trustProxy = this.app?.get?.("trust proxy");
 
     if (trustProxy) {
-      // Try X-Forwarded-For first
+      // Try X-Forwarded-For
       const xff = this.headers.get("x-forwarded-for");
       if (xff) {
         this._ip = xff.split(",")[0].trim();
@@ -82,15 +84,22 @@ export class RequestImpl implements RequestInterface {
         this._ip = xri.trim();
         return this._ip;
       }
+
+      // Try CF-Connecting-IP (Cloudflare)
+      const cfIp = this.headers.get("cf-connecting-ip");
+      if (cfIp) {
+        this._ip = cfIp.trim();
+        return this._ip;
+      }
     }
 
-    // Default to empty (Bun doesn't expose socket info directly)
+    // Fallback to empty (Bun doesn't expose socket directly)
     this._ip = "";
     return this._ip;
   }
 
   /**
-   * Get the request protocol
+   * Get request protocol
    */
   get protocol(): "http" | "https" {
     if (this._protocol) return this._protocol;
@@ -105,35 +114,37 @@ export class RequestImpl implements RequestInterface {
       }
     }
 
-    // Check URL
     this._protocol = new URL(this.url).protocol === "https:" ? "https" : "http";
     return this._protocol;
   }
 
   /**
-   * Check if the connection is secure (HTTPS)
+   * Check if connection is secure (HTTPS)
    */
   get secure(): boolean {
-    return this.protocol === "https";
+    if (this._secure !== undefined) return this._secure;
+    this._secure = this.protocol === "https";
+    return this._secure;
   }
 
   /**
    * Check if request is XMLHttpRequest
    */
   get xhr(): boolean {
+    if (this._xhr !== undefined) return this._xhr;
     const val = this.headers.get("x-requested-with") || "";
-    return val.toLowerCase() === "xmlhttprequest";
+    this._xhr = val.toLowerCase() === "xmlhttprequest";
+    return this._xhr;
   }
 
   /**
-   * Get the hostname from the Host header
+   * Get hostname from Host header
    */
   get hostname(): string {
     if (this._hostname) return this._hostname;
 
     const trustProxy = this.app?.get?.("trust proxy");
 
-    // Try X-Forwarded-Host first if trusting proxy
     if (trustProxy) {
       const xfh = this.headers.get("x-forwarded-host");
       if (xfh) {
@@ -142,7 +153,6 @@ export class RequestImpl implements RequestInterface {
       }
     }
 
-    // Use Host header
     const host = this.headers.get("host") || "";
     this._hostname = host.split(":")[0];
     return this._hostname;
@@ -158,45 +168,46 @@ export class RequestImpl implements RequestInterface {
     const offset = this.app?.get?.("subdomain offset") ?? 2;
 
     const parts = hostname.split(".");
-    this._subdomains = parts.slice(0, -offset).reverse();
+    this._subdomains =
+      parts.length > offset ? parts.slice(0, -offset).reverse() : [];
 
     return this._subdomains;
   }
 
   /**
-   * Check if the cache is fresh (not modified)
+   * Check if cache is fresh
    */
   get fresh(): boolean {
-    const method = this.method;
+    if (this._fresh !== undefined) return this._fresh;
 
-    // Only GET/HEAD requests can be fresh
+    const method = this.method;
     if (method !== "GET" && method !== "HEAD") {
+      this._fresh = false;
       return false;
     }
 
-    // Check If-None-Match (ETag)
     const noneMatch = this.headers.get("if-none-match");
-    // Check If-Modified-Since
     const modifiedSince = this.headers.get("if-modified-since");
 
-    // Request is not conditional
-    if (!noneMatch && !modifiedSince) {
-      return false;
-    }
-
-    // For now, return false (proper implementation needs response headers)
-    return false;
+    this._fresh = !!(noneMatch || modifiedSince);
+    return this._fresh;
   }
 
   /**
-   * Check if the cache is stale
+   * Check if cache is stale
    */
   get stale(): boolean {
-    return !this.fresh;
+    if (this._stale !== undefined) return this._stale;
+    this._stale = !this.fresh;
+    return this._stale;
   }
 
+  // ============================================================================
+  // Header Methods
+  // ============================================================================
+
   /**
-   * Get the value of a header (case-insensitive)
+   * Get header value (case-insensitive)
    */
   get(name: string): string | undefined {
     const lower = name.toLowerCase();
@@ -211,94 +222,54 @@ export class RequestImpl implements RequestInterface {
     return this.headers.get(name) || undefined;
   }
 
+  // ============================================================================
+  // Content Negotiation
+  // ============================================================================
+
   /**
-   * Check if the request accepts the given content type(s)
+   * Check if request accepts given content type(s)
    */
   accepts(...types: string[]): string | false {
-    const accept = this.headers.get("accept") || "*/*";
-
-    if (types.length === 0) {
-      return accept;
+    if (!this._accepts) {
+      this._accepts = accepts(this as any);
     }
 
-    const parsed = this._parseAccept(accept);
-
-    for (const type of types) {
-      const normalizedType = this._normalizeType(type);
-
-      for (const accepted of parsed) {
-        if (this._matchType(normalizedType, accepted.type)) {
-          return type;
-        }
-      }
-    }
-
-    return false;
+    const result = this._accepts.types(types);
+    return Array.isArray(result) ? result[0] || false : result;
   }
 
   /**
-   * Check if the request accepts the given encoding(s)
+   * Check if request accepts given encoding(s)
    */
   acceptsEncodings(...encodings: string[]): string | false {
-    const accept = this.headers.get("accept-encoding") || "";
-
-    if (encodings.length === 0) {
-      return accept;
+    if (!this._accepts) {
+      this._accepts = accepts(this as any);
     }
 
-    const parts = accept
-      .split(",")
-      .map((e) => e.trim().split(";")[0].toLowerCase());
-
-    for (const encoding of encodings) {
-      if (parts.includes(encoding.toLowerCase())) {
-        return encoding;
-      }
-    }
-
-    // identity is always acceptable unless explicitly rejected
-    if (encodings.includes("identity") && !parts.includes("identity;q=0")) {
-      return "identity";
-    }
-
-    return false;
+    const result = this._accepts.encodings(encodings);
+    return Array.isArray(result) ? result[0] || false : result;
   }
 
   /**
-   * Check if the request accepts the given language(s)
+   * Check if request accepts given language(s)
    */
   acceptsLanguages(...languages: string[]): string | false {
-    const accept = this.headers.get("accept-language") || "";
-
-    if (languages.length === 0) {
-      return accept;
+    if (!this._accepts) {
+      this._accepts = accepts(this as any);
     }
 
-    const parts = accept
-      .split(",")
-      .map((l) => l.trim().split(";")[0].toLowerCase());
-
-    for (const lang of languages) {
-      const lower = lang.toLowerCase();
-      if (
-        parts.includes(lower) ||
-        parts.some((p) => p.startsWith(lower.split("-")[0]))
-      ) {
-        return lang;
-      }
-    }
-
-    return false;
+    const result = this._accepts.languages(languages);
+    return Array.isArray(result) ? result[0] || false : result;
   }
 
   /**
-   * Check if the request's Content-Type matches the given type(s)
+   * Check if Content-Type matches type(s)
    */
   is(...types: string[]): string | false {
     const contentType = this.headers.get("content-type");
     if (!contentType) return false;
 
-    const type = contentType.split(";")[0].trim();
+    const type = contentType.split(";")[0].trim().toLowerCase();
 
     for (const t of types) {
       const normalized = this._normalizeType(t);
@@ -310,133 +281,113 @@ export class RequestImpl implements RequestInterface {
     return false;
   }
 
+  // ============================================================================
+  // Body Parsing Methods
+  // ============================================================================
+
   /**
-   * Parse request body as JSON
+   * Parse body as JSON
    */
   async json(): Promise<any> {
-    if (this.body) return this.body;
+    if (this.body !== null) return this.body;
+
     try {
       this.body = await this._nativeRequest.json();
       return this.body;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
 
   /**
-   * Parse request body as text
+   * Parse body as text
    */
   async text(): Promise<string> {
     return this._nativeRequest.text();
   }
 
   /**
-   * Parse request body as ArrayBuffer
+   * Parse body as ArrayBuffer
    */
   async arrayBuffer(): Promise<ArrayBuffer> {
     return this._nativeRequest.arrayBuffer();
   }
 
   /**
-   * Parse request body as Blob
+   * Parse body as Blob
    */
   async blob(): Promise<Blob> {
     return this._nativeRequest.blob();
   }
 
   /**
-   * Parse request body as FormData
-   * @note For large file uploads, this method uses a streaming parser
-   * to avoid memory issues. For regular requests, it uses Bun's native formData().
+   * Parse body as FormData
    */
   async formData(): Promise<FormData> {
-    // Check if this is a multipart request that might contain large files
     const contentType = this.headers.get("content-type");
-    const isMultipart =
-      contentType && contentType.includes("multipart/form-data");
 
-    if (isMultipart) {
-      // For multipart requests, use our streaming parser
-      // This prevents memory issues with large file uploads
+    // For multipart, use streaming parser if needed
+    if (contentType?.includes("multipart/form-data")) {
       return this._parseMultipartFormData();
     }
 
-    // For non-multipart requests, use Bun's native formData()
-    if (typeof this._nativeRequest.formData === "function") {
-      return this._nativeRequest.formData() as unknown as FormData;
-    }
+    return this._nativeRequest.formData() as unknown as FormData;
+  }
 
-    throw new Error("formData() is not supported by this Request");
+  // ============================================================================
+  // Private Methods
+  // ============================================================================
+
+  /**
+   * Parse query string from URL
+   */
+  private _parseQueryString(url: URL): void {
+    for (const [key, value] of url.searchParams.entries()) {
+      const existing = this.query[key];
+
+      if (existing) {
+        if (Array.isArray(existing)) {
+          existing.push(value);
+        } else {
+          this.query[key] = [existing, value];
+        }
+      } else {
+        this.query[key] = value;
+      }
+    }
   }
 
   /**
-   * Parse multipart form data using streaming parser
-   * This method handles large file uploads efficiently
+   * Parse multipart form data with streaming
    */
   private async _parseMultipartFormData(): Promise<FormData> {
     try {
-      // Import the multipart parser dynamically to avoid circular dependencies
-      const { parseMultipart } = await import("../../utils/multipart");
+      const { parseMultipart } = await import("../utils/multipart");
+      const config = this.app?.get("multipart") || {};
+      const fields = await parseMultipart(this._nativeRequest, config);
 
-      // Get multipart configuration from the framework
-      const multipartConfig = this.app?.get("multipart") || {};
-
-      const fields = await parseMultipart(this._nativeRequest, multipartConfig);
-
-      // Convert our parsed fields to a FormData object
       const formData = new FormData();
-
       for (const field of fields) {
         if (field.filename) {
-          // This is a file - create a File object
           const file = new File([field.content], field.filename, {
             type: field.contentType || "application/octet-stream",
           });
           formData.append(field.name, file);
         } else {
-          // This is a regular field
           formData.append(field.name, field.content as string);
         }
       }
 
       return formData;
     } catch (error) {
-      console.error("Error parsing multipart form data:", error);
+      console.error("Multipart parsing error:", error);
       throw new Error("Failed to parse multipart form data");
     }
   }
 
-  // Private helpers
-
-  private _parseAccept(accept: string): AcceptsResult[] {
-    return accept
-      .split(",")
-      .map((part) => {
-        const [type, ...params] = part.trim().split(";");
-        const [main, sub] = type.split("/");
-
-        let quality = 1;
-        const parsedParams: Record<string, string> = {};
-
-        for (const param of params) {
-          const [key, value] = param.trim().split("=");
-          if (key === "q") {
-            quality = parseFloat(value) || 1;
-          } else {
-            parsedParams[key] = value;
-          }
-        }
-
-        return {
-          type: type.trim(),
-          subtype: sub || "*",
-          params: parsedParams,
-          quality,
-        };
-      })
-      .sort((a, b) => b.quality - a.quality);
-  }
-
+  /**
+   * Normalize content type shorthand
+   */
   private _normalizeType(type: string): string {
     const types: Record<string, string> = {
       html: "text/html",
@@ -451,6 +402,9 @@ export class RequestImpl implements RequestInterface {
     return types[type] || type;
   }
 
+  /**
+   * Match content type
+   */
   private _matchType(actual: string, expected: string): boolean {
     const [actualMain, actualSub] = actual.split("/");
     const [expectedMain, expectedSub] = expected.split("/");

@@ -1,70 +1,36 @@
 import type { Application } from "../core/application";
 import { session } from "../modules/session/middleware";
-import type { SessionCookieOptions, SessionStore } from "../modules/session/types";
-import type { Request } from "../types";
+import type {
+  SessionCookieOptions,
+  SessionStore,
+} from "../modules/session/types";
+
 /**
  * Session middleware configuration options
  */
 export interface SessionOptions {
-  /**
-   * Cookie name for the session ID
-   * @default "arcanajs.sid"
-   */
+  /** Cookie name */
   name?: string;
-
-  /**
-   * Secret(s) used to sign the session cookie.
-   * REQUIRED - will throw if not provided.
-   * If an array, first secret is used to sign, all are used to verify.
-   */
+  /** Secret key(s) for signing */
   secret: string | string[];
-
-  /**
-   * Session store instance
-   * @default MemoryStore (development only!)
-   */
+  /** Session store */
   store?: SessionStore;
-
-  /**
-   * Force save session to store on every request
-   * @default false
-   */
+  /** Force save unchanged sessions */
   resave?: boolean;
-
-  /**
-   * Save uninitialized sessions (new but not modified)
-   * @default false
-   */
+  /** Save uninitialized sessions */
   saveUninitialized?: boolean;
-
-  /**
-   * Reset cookie maxAge on every request
-   * @default false
-   */
+  /** Rolling session expiration */
   rolling?: boolean;
-
-  /**
-   * Trust the reverse proxy for secure cookies
-   * @default undefined (auto-detect)
-   */
+  /** Trust proxy headers */
   proxy?: boolean;
-
-  /**
-   * Behavior when req.session is deleted
-   * @default "keep"
-   */
-  unset?: "destroy" | "keep";
-
-  /**
-   * Custom session ID generator
-   */
-  genid?: (req: Request) => string;
-
-  /**
-   * Cookie options
-   */
+  /** Cookie options */
   cookie?: SessionCookieOptions;
+  /** Custom ID generator */
+  genid?: (req: any) => string;
+  /** Unset behavior */
+  unset?: "destroy" | "keep";
 }
+
 export const sessionPlugin = (options: SessionOptions) => ({
   name: "session",
   version: "1.0.0",

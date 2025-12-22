@@ -1,61 +1,151 @@
 /**
- * ArcanaJS Session ID Generation
+ * ArcanaJS Session ID Utilities - Production Implementation
  *
- * Cryptographically secure session ID generation and signing.
+ * Cryptographically secure session ID generation and validation
+ * Optimized for Bun runtime with HMAC signing
  */
 
 import signature from "cookie-signature";
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+const SESSION_ID_LENGTH = 36; // UUID v4 length
+const SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// ============================================================================
+// Session ID Generation
+// ============================================================================
+
 /**
- * Generate a cryptographically secure session ID
+ * Generate cryptographically secure session ID using Bun's crypto
  *
- * Uses crypto.randomUUID() combined with additional entropy
- * to create a unique, unpredictable session identifier.
+ * @returns UUID v4 string
  */
 export function generateSessionId(): string {
+  // Use Bun's native crypto.randomUUID()
   return crypto.randomUUID();
 }
 
 /**
- * Sign a session ID with a secret
+ * Generate multiple session IDs in batch
  *
- * Creates a signed cookie value that can be verified later.
- * Uses HMAC-SHA256 via cookie-signature.
+ * @param count Number of IDs to generate
+ * @returns Array of session IDs
+ */
+export function generateSessionIds(count: number): string[] {
+  if (count <= 0 || !Number.isInteger(count)) {
+    throw new Error("Count must be a positive integer");
+  }
+
+  return Array.from({ length: count }, () => generateSessionId());
+}
+
+// ============================================================================
+// Session ID Validation
+// ============================================================================
+
+/**
+ * Validate session ID format and security
  *
- * @param sid - The session ID to sign
- * @param secret - The secret to sign with
- * @returns Signed session ID prefixed with 's:'
+ * @param sid Session ID to validate
+ * @returns true if valid
+ */
+export function isValidSessionId(sid: string): boolean {
+  // Type check
+  if (typeof sid !== "string") {
+    return false;
+  }
+
+  // Length check
+  if (sid.length !== SESSION_ID_LENGTH) {
+    return false;
+  }
+
+  // Pattern check (UUID v4)
+  if (!SESSION_ID_PATTERN.test(sid)) {
+    return false;
+  }
+
+  // Security checks
+  if (hasControlCharacters(sid)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Check for control characters in string
+ */
+function hasControlCharacters(str: string): boolean {
+  return /[\x00-\x1f\x7f]/.test(str);
+}
+
+// ============================================================================
+// Session ID Signing
+// ============================================================================
+
+/**
+ * Sign session ID with secret
+ *
+ * @param sid Session ID
+ * @param secret Secret key
+ * @returns Signed session ID with 's:' prefix
  */
 export function signSessionId(sid: string, secret: string): string {
+  if (!isValidSessionId(sid)) {
+    throw new Error("Invalid session ID");
+  }
+
+  if (!secret || typeof secret !== "string" || secret.length < 32) {
+    throw new Error("Secret must be at least 32 characters");
+  }
+
   return "s:" + signature.sign(sid, secret);
 }
 
 /**
- * Unsign and verify a session ID
+ * Unsign and verify session ID
  *
- * Verifies the signature and returns the original session ID.
- * Supports multiple secrets for secret rotation.
+ * Supports multiple secrets for rotation
  *
- * @param signed - The signed session ID (with 's:' prefix)
- * @param secrets - Array of secrets to try
- * @returns Original session ID or false if invalid
+ * @param signed Signed session ID
+ * @param secrets Array of secrets to try
+ * @returns Original session ID or false
  */
 export function unsignSessionId(
   signed: string,
   secrets: string[]
 ): string | false {
-  // Check for 's:' prefix
-  if (typeof signed !== "string" || signed.substring(0, 2) !== "s:") {
+  // Type check
+  if (typeof signed !== "string") {
     return false;
+  }
+
+  // Check prefix
+  if (!signed.startsWith("s:")) {
+    return false;
+  }
+
+  // Validate secrets
+  if (!Array.isArray(secrets) || secrets.length === 0) {
+    throw new Error("At least one secret is required");
   }
 
   const value = signed.slice(2);
 
-  // Try each secret
+  // Try each secret (first is current, others for rotation)
   for (const secret of secrets) {
     const result = signature.unsign(value, secret);
+
     if (result !== false) {
-      return result;
+      // Validate the unsigned ID
+      if (isValidSessionId(result)) {
+        return result;
+      }
     }
   }
 
@@ -63,28 +153,116 @@ export function unsignSessionId(
 }
 
 /**
- * Validate a session ID format
+ * Batch unsign multiple session IDs
  *
- * Ensures the session ID meets basic requirements.
- *
- * @param sid - Session ID to validate
- * @returns true if valid format
+ * @param signedIds Array of signed session IDs
+ * @param secrets Array of secrets
+ * @returns Map of signed ID to unsigned ID
  */
-export function isValidSessionId(sid: string): boolean {
-  // Must be a non-empty string
-  if (typeof sid !== "string" || sid.length === 0) {
+export function unsignSessionIds(
+  signedIds: string[],
+  secrets: string[]
+): Map<string, string | false> {
+  const results = new Map<string, string | false>();
+
+  for (const signedId of signedIds) {
+    results.set(signedId, unsignSessionId(signedId, secrets));
+  }
+
+  return results;
+}
+
+// ============================================================================
+// Session ID Rotation
+// ============================================================================
+
+/**
+ * Re-sign session ID with new secret
+ *
+ * Used for secret rotation
+ *
+ * @param signed Old signed session ID
+ * @param oldSecrets Old secrets for unsigning
+ * @param newSecret New secret for signing
+ * @returns New signed session ID or null if invalid
+ */
+export function rotateSessionId(
+  signed: string,
+  oldSecrets: string[],
+  newSecret: string
+): string | null {
+  const sid = unsignSessionId(signed, oldSecrets);
+
+  if (sid === false) {
+    return null;
+  }
+
+  return signSessionId(sid, newSecret);
+}
+
+// ============================================================================
+// Timing-Safe Comparison
+// ============================================================================
+
+/**
+ * Timing-safe string comparison
+ *
+ * Prevents timing attacks on session ID comparison
+ *
+ * @param a First string
+ * @param b Second string
+ * @returns true if equal
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
     return false;
   }
 
-  // Must be at least 32 characters (UUID length)
-  if (sid.length < 32) {
-    return false;
+  // Use Bun's built-in crypto for timing-safe comparison
+  const bufA = new TextEncoder().encode(a);
+  const bufB = new TextEncoder().encode(b);
+
+  // XOR all bytes and accumulate
+  let result = 0;
+  for (let i = 0; i < bufA.length; i++) {
+    result |= bufA[i] ^ bufB[i];
   }
 
-  // Must not contain control characters or spaces
-  if (/[\x00-\x1f\x7f\s]/.test(sid)) {
-    return false;
+  return result === 0;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Extract session ID from signed cookie value
+ *
+ * @param cookieValue Cookie value (may or may not be signed)
+ * @param secrets Secrets for unsigning
+ * @returns Session ID or null
+ */
+export function extractSessionId(
+  cookieValue: string,
+  secrets: string[]
+): string | null {
+  if (!cookieValue) {
+    return null;
   }
 
-  return true;
+  // Check if signed
+  if (cookieValue.startsWith("s:")) {
+    const result = unsignSessionId(cookieValue, secrets);
+    return result === false ? null : result;
+  }
+
+  // Not signed, validate directly
+  return isValidSessionId(cookieValue) ? cookieValue : null;
+}
+
+/**
+ * Check if session ID is signed
+ */
+export function isSignedSessionId(value: string): boolean {
+  return typeof value === "string" && value.startsWith("s:");
 }

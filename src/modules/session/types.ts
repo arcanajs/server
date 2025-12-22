@@ -1,223 +1,245 @@
 /**
- * ArcanaJS Session Module - Type Definitions
+ * ArcanaJS Session System - Production Types
  *
- * Core interfaces and types for the session management system.
+ * Comprehensive type definitions for session management
+ * Optimized for Bun runtime with strict type safety
  */
 
-import type { Request } from "../../types";
-
 // ============================================================================
-// Session Cookie Types
+// Core Session Types
 // ============================================================================
 
 /**
- * Cookie data stored with the session
+ * Session cookie configuration
  */
 export interface SessionCookieData {
-  /** Original maxAge value in milliseconds */
+  /** Original maxAge in milliseconds */
   originalMaxAge: number | null;
-  /** Expiration date */
-  expires: Date | string | null;
-  /** Cookie is only sent over HTTPS */
+  /** Expiration timestamp (ISO string) */
+  expires: string | null;
+  /** HTTPS-only flag */
   secure: boolean;
-  /** Cookie is not accessible via JavaScript */
+  /** JavaScript-inaccessible flag */
   httpOnly: boolean;
   /** Cookie path */
   path: string;
   /** Cookie domain */
   domain?: string;
-  /** SameSite attribute */
-  sameSite: boolean | "lax" | "strict" | "none";
+  /** SameSite policy */
+  sameSite: "strict" | "lax" | "none" | boolean;
 }
 
 /**
- * Cookie options for session configuration
+ * Session cookie options
  */
 export interface SessionCookieOptions {
-  /** Max age in milliseconds */
   maxAge?: number;
-  /** Explicit expiration date */
   expires?: Date;
-  /** HttpOnly flag (default: true) */
   httpOnly?: boolean;
-  /** Secure flag - 'auto' detects based on connection (default: 'auto') */
   secure?: boolean | "auto";
-  /** SameSite attribute (default: 'lax') */
-  sameSite?: boolean | "lax" | "strict" | "none";
-  /** Cookie path (default: '/') */
+  sameSite?: "strict" | "lax" | "none" | boolean;
   path?: string;
-  /** Cookie domain */
   domain?: string;
 }
 
-// ============================================================================
-// Session Data Types
-// ============================================================================
-
 /**
- * Session data stored in the store
+ * Stored session data structure
  */
 export interface SessionData {
-  /** Cookie configuration */
+  /** Cookie metadata */
   cookie: SessionCookieData;
-  /** Arbitrary session data */
+  /** Session creation timestamp */
+  createdAt?: number;
+  /** Last activity timestamp */
+  lastActivity?: number;
+  /** Custom session data */
   [key: string]: any;
 }
 
 /**
- * Session cookie interface
- */
-export interface SessionCookie extends SessionCookieData {
-  /** Reset maxAge to original value */
-  resetMaxAge(): void;
-  /** Check if cookie has expired */
-  readonly isExpired: boolean;
-  /** Serialize cookie for Set-Cookie header */
-  serialize(name: string, val: string): string;
-  /** Convert to JSON for storage */
-  toJSON(): SessionCookieData;
-}
-
-/**
- * Session object attached to req.session
- */
-export interface Session {
-  /** Session ID */
-  readonly id: string;
-  /** Session cookie */
-  cookie: SessionCookie;
-
-  /**
-   * Get a value from the session
-   */
-  get<T = any>(key: string): T | undefined;
-
-  /**
-   * Set a value in the session
-   */
-  set(key: string, value: any): this;
-
-  /**
-   * Delete a key from the session
-   */
-  delete(key: string): boolean;
-
-  /**
-   * Check if a key exists in the session
-   */
-  has(key: string): boolean;
-
-  /**
-   * Destroy the session
-   */
-  destroy(): Promise<void>;
-
-  /**
-   * Regenerate the session with a new ID (prevents session fixation)
-   */
-  regenerate(): Promise<void>;
-
-  /**
-   * Save the session to the store
-   */
-  save(): Promise<void>;
-
-  /**
-   * Reload the session from the store
-   */
-  reload(): Promise<void>;
-
-  /**
-   * Touch the session (update expiration without modifying data)
-   */
-  touch(): void;
-
-  /**
-   * Check if session has been modified
-   */
-  readonly isModified: boolean;
-
-  /**
-   * Check if this is a new session
-   */
-  readonly isNew: boolean;
-
-  /**
-   * Convert session to JSON for storage
-   */
-  toJSON(): SessionData;
-}
-
-// ============================================================================
-// Session Store Interface
-// ============================================================================
-
-/**
- * Session store interface for extensibility
- *
- * Implement this interface to create custom session stores.
+ * Session store interface
  */
 export interface SessionStore {
   /**
-   * Get session data by ID
+   * Retrieve session by ID
    * @returns Session data or null if not found/expired
    */
   get(sid: string): Promise<SessionData | null>;
 
   /**
    * Store session data
-   * @param sid - Session ID
-   * @param session - Session data to store
-   * @param ttl - Time to live in seconds (optional)
+   * @param sid Session ID
+   * @param session Session data
+   * @param ttl TTL in seconds (optional)
    */
   set(sid: string, session: SessionData, ttl?: number): Promise<void>;
 
   /**
-   * Destroy a session
+   * Delete session
+   * @param sid Session ID
    */
   destroy(sid: string): Promise<void>;
 
   /**
-   * Touch a session (update expiration)
-   * Optional - if not implemented, set() will be called
+   * Update session expiration
+   * @param sid Session ID
+   * @param session Session data
    */
   touch?(sid: string, session: SessionData): Promise<void>;
 
   /**
-   * Clear all sessions (optional)
+   * Clear all sessions
    */
   clear?(): Promise<void>;
 
   /**
-   * Get total number of sessions (optional)
+   * Get session count
    */
   length?(): Promise<number>;
 
   /**
-   * Get all sessions (optional)
+   * Cleanup expired sessions
    */
-  all?(): Promise<SessionData[] | Record<string, SessionData>>;
+  prune?(): Promise<void>;
+}
+
+/**
+ * Session configuration options
+ */
+export interface SessionOptions {
+  /** Cookie name */
+  name?: string;
+  /** Secret key(s) for signing */
+  secret: string | string[];
+  /** Session store */
+  store?: SessionStore;
+  /** Force save unchanged sessions */
+  resave?: boolean;
+  /** Save uninitialized sessions */
+  saveUninitialized?: boolean;
+  /** Rolling session expiration */
+  rolling?: boolean;
+  /** Trust proxy headers */
+  proxy?: boolean;
+  /** Cookie options */
+  cookie?: SessionCookieOptions;
+  /** Custom ID generator */
+  genid?: (req: any) => string;
+  /** Unset behavior */
+  unset?: "destroy" | "keep";
+}
+
+/**
+ * Session interface
+ */
+export interface Session {
+  /** Unique session ID */
+  readonly id: string;
+  /** Cookie configuration */
+  cookie: SessionCookie;
+  /** Creation timestamp */
+  readonly createdAt: number;
+  /** Last activity timestamp */
+  lastActivity: number;
+
+  /**
+   * Get session value
+   */
+  get<T = any>(key: string): T | undefined;
+
+  /**
+   * Set session value
+   */
+  set(key: string, value: any): this;
+
+  /**
+   * Delete session value
+   */
+  delete(key: string): boolean;
+
+  /**
+   * Check if key exists
+   */
+  has(key: string): boolean;
+
+  /**
+   * Destroy session
+   */
+  destroy(): Promise<void>;
+
+  /**
+   * Regenerate session ID
+   */
+  regenerate(): Promise<void>;
+
+  /**
+   * Save session to store
+   */
+  save(): Promise<void>;
+
+  /**
+   * Reload session from store
+   */
+  reload(): Promise<void>;
+
+  /**
+   * Touch session (update expiration)
+   */
+  touch(): void;
+
+  /**
+   * Check if modified
+   */
+  readonly isModified: boolean;
+
+  /**
+   * Check if new
+   */
+  readonly isNew: boolean;
+
+  /**
+   * Convert to JSON
+   */
+  toJSON(): SessionData;
+}
+
+/**
+ * Session cookie interface
+ */
+export interface SessionCookie extends SessionCookieData {
+  /** Current maxAge in milliseconds */
+  maxAge: number | null;
+  /** Check if expired */
+  readonly isExpired: boolean;
+  /** Reset to original maxAge */
+  resetMaxAge(): void;
+  /** Serialize for Set-Cookie header */
+  serialize(name: string, value: string): string;
+  /** Convert to JSON */
+  toJSON(): SessionCookieData;
 }
 
 // ============================================================================
-// Session Events (for observability)
+// Store Error Types
 // ============================================================================
 
-/**
- * Session event types
- */
-export type SessionEventType =
-  | "create"
-  | "destroy"
-  | "save"
-  | "regenerate"
-  | "touch";
+export class SessionStoreError extends Error {
+  constructor(message: string, public code?: string) {
+    super(message);
+    this.name = "SessionStoreError";
+  }
+}
 
-/**
- * Session event handler
- */
-export type SessionEventHandler = (
-  type: SessionEventType,
-  sessionId: string,
-  session?: SessionData
-) => void | Promise<void>;
+export class SessionNotFoundError extends SessionStoreError {
+  constructor(sid: string) {
+    super(`Session not found: ${sid}`, "SESSION_NOT_FOUND");
+    this.name = "SessionNotFoundError";
+  }
+}
+
+export class SessionExpiredError extends SessionStoreError {
+  constructor(sid: string) {
+    super(`Session expired: ${sid}`, "SESSION_EXPIRED");
+    this.name = "SessionExpiredError";
+  }
+}
