@@ -15,7 +15,7 @@ import { Application, arcanajs as createApplication } from "./core/application";
 import { patchListen } from "./server/arcanajs";
 
 // Router Module imports
-import { Router } from "./modules/router";
+import { Router, RouterOptions } from "./modules/router";
 
 // Plugin imports
 import { CookieOptions, cookiePlugin } from "./plugins/cookie";
@@ -54,7 +54,7 @@ function arcanajs(): Application {
 // ============================================================================
 
 arcanajs.Application = Application;
-arcanajs.Router = () => new Router();
+arcanajs.Router = (options?: RouterOptions) => new Router(options);
 arcanajs.json = jsonPlugin;
 arcanajs.cookie = cookiePlugin;
 arcanajs.static = staticPlugin;
@@ -124,25 +124,36 @@ export {
 
 // Router module
 export { Layer, RadixTree } from "./modules/router";
+// Utility Router exports
+export {
+  compareRoutes,
+  extractParameters,
+  extractRouteInfo,
+  formatRoutePath,
+  generateRouteDocumentation,
+  matchesPattern,
+  mergeRouteParams,
+  normalizeRouterPath,
+  parseRoutePattern,
+  pathsAreSimilar,
+  pathToRegex,
+  routeToString,
+  validateRoutePath,
+} from "./modules/router";
 export type {
+  LayerOptions,
   ParamConstraint,
+  ParameterExtraction,
+  PathNormalizationOptions,
+  RadixTreeStats,
   RouteConstraints,
   RouteDefinition,
   RouteGroupCallback,
+  RouteInfo,
   RouteMatch,
+  RouteMetadata,
   RouterOptions,
 } from "./modules/router";
-
-// Middleware module
-export {
-  catchErrors,
-  compose,
-  MiddlewareEngine,
-  timeout,
-  unless,
-  when,
-} from "./modules/middleware";
-export type { MiddlewareOptions } from "./modules/middleware";
 
 // Security module
 export {
