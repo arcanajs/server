@@ -124,10 +124,11 @@ export class MiddlewareStack {
     req: Request,
     res: Response,
     finalHandler: NextFunction,
-    startIndex: number = 0
+    startIndex: number = 0,
+    initialError?: any
   ): Promise<void> {
     let currentIndex = startIndex;
-    let currentError: any = undefined;
+    let currentError: any = initialError;
 
     /**
      * Fonction next() qui avance dans la chaîne

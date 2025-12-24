@@ -17,6 +17,7 @@ import type {
   Response,
 } from "../types";
 import { RequestImpl, ResponseImpl } from "./context";
+import { debug } from "./debug";
 import { View } from "./view";
 
 /**
@@ -25,7 +26,6 @@ import { View } from "./view";
 export interface ApplicationOptions {
   strict?: boolean;
   requestTimeout?: number;
-  logging?: boolean;
   trustProxy?: boolean;
   maxHooksPerEvent?: number;
   monitoring?: boolean;
@@ -86,7 +86,6 @@ export class Application {
     this._options = {
       strict: options.strict ?? false,
       requestTimeout: options.requestTimeout ?? 30000,
-      logging: options.logging ?? process.env.NODE_ENV !== "production",
       trustProxy: options.trustProxy ?? false,
       maxHooksPerEvent: options.maxHooksPerEvent ?? 100,
       monitoring: options.monitoring ?? true,
@@ -318,9 +317,7 @@ export class Application {
       metadata.installed = true;
       this._plugins.set(plugin.name, metadata);
 
-      if (this._options.logging) {
-        console.log(`✓ Plugin installed: ${plugin.name}`);
-      }
+      debug.success(`✓ Plugin installed: ${plugin.name}`);
     } catch (error) {
       metadata.error = error as Error;
       this._plugins.set(plugin.name, metadata);
@@ -618,11 +615,45 @@ export class Application {
 
     await this.runOnErrorHooks(err, req, res);
 
-    if (this._options.logging) {
-      console.error("Request error:", err);
-    }
+    // Find first error-middleware index in the stack
+    const entries: any[] = (this._middlewareStack as any).entries || [];
+    const firstErrorIndex = entries.findIndex((e) => e.isErrorHandler);
 
-    if (!res.sent) {
+    if (firstErrorIndex >= 0) {
+      // finalHandler called by MiddlewareStack when chain ends
+      const finalHandler: NextFunction = async (e?: any) => {
+        if (!res.sent) {
+          const displayErr = e ?? err;
+          const isDev = this.get("env") === "development";
+          await res.status(displayErr.status || 500).json({
+            error: displayErr.message || "Internal Server Error",
+            ...(isDev && { stack: displayErr.stack }),
+          });
+        }
+      };
+
+      // Execute the stack starting at first error handler, with the initial error
+      try {
+        await this._middlewareStack.execute(
+          req,
+          res,
+          finalHandler,
+          firstErrorIndex,
+          err
+        );
+      } catch (executeErr) {
+        // If error occurs while executing error middleware, fallback to default response
+        const e: any = executeErr;
+        if (!res.sent) {
+          const isDev = this.get("env") === "development";
+          await res.status(e.status || 500).json({
+            error: e.message || "Internal Server Error",
+            ...(isDev && { stack: e.stack }),
+          });
+        }
+      }
+    } else if (!res.sent) {
+      // If no error middleware, send default JSON response
       const isDev = this.get("env") === "development";
       await res.status(err.status || 500).json({
         error: err.message || "Internal Server Error",
@@ -706,9 +737,7 @@ export class Application {
     this.locals = {};
     this._destroyed = true;
 
-    if (this._options.logging) {
-      console.log("Application destroyed");
-    }
+    debug.info("Application destroyed");
   }
 
   getStats() {
