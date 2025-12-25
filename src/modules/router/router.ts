@@ -61,6 +61,9 @@ export class Router {
   // Middleware stack indépendante
   private _middlewareStack: MiddlewareStack;
 
+  // Mounted child routers
+  private _mounts: Array<{ path: string; router: Router }> = [];
+
   // Route layers pour le matching
   private _routeLayers: Layer[] = [];
 
@@ -347,37 +350,8 @@ export class Router {
 
     const mountPath = this._resolvePath(path);
 
-    // Fusionner la stack de middleware
-    this._middlewareStack.merge(router._middlewareStack, mountPath);
-
-    // Fusionner les layers de route
-    for (const layer of router._routeLayers) {
-      const fullPath = this._joinPaths(mountPath, layer.path);
-
-      const newLayer = new Layer({
-        path: fullPath,
-        method: layer.method,
-        handler: layer.handler,
-        constraints: layer.constraints,
-        metadata: layer.metadata,
-      });
-
-      this._routeLayers.push(newLayer);
-
-      // Ajouter au radix tree
-      if (this._radixTree && layer.method !== "USE") {
-        const constraints = layer.constraints
-          ? this._parseConstraints(layer.constraints)
-          : undefined;
-        this._radixTree.add(
-          layer.method,
-          fullPath,
-          [layer.handler as Middleware],
-          constraints,
-          layer.metadata
-        );
-      }
-    }
+    // Store mount instead of merging to preserve router-local middleware and error handlers
+    this._mounts.push({ path: mountPath, router });
 
     return this;
   }
@@ -396,6 +370,42 @@ export class Router {
     finalHandler: NextFunction
   ): Promise<void> {
     const startTime = this._options.monitoring ? Date.now() : 0;
+    // Check mounted child routers first (choose longest matching mount)
+    if (this._mounts && this._mounts.length > 0) {
+      let bestMount: { path: string; router: Router } | null = null;
+      for (const m of this._mounts) {
+        if (req.path === m.path || req.path.startsWith(m.path + "/")) {
+          if (!bestMount || m.path.length > bestMount.path.length) {
+            bestMount = m;
+          }
+        }
+      }
+
+      if (bestMount) {
+        // Delegate to child router with path adjusted (strip mount prefix)
+        const originalPath = req.path;
+        const originalBase = req.baseUrl || "";
+
+        // Compute new path: strip mount path prefix
+        let newPath = originalPath.slice(bestMount.path.length);
+        if (!newPath) newPath = "/";
+
+        // Adjust request
+        req.path = newPath;
+        req.baseUrl =
+          (originalBase === "/" ? "" : originalBase) + bestMount.path;
+
+        try {
+          await bestMount.router.handle(req, res, finalHandler);
+        } finally {
+          // Restore original path/baseUrl
+          req.path = originalPath;
+          req.baseUrl = originalBase;
+        }
+
+        return;
+      }
+    }
 
     try {
       if (this._options.monitoring) {
@@ -469,7 +479,18 @@ export class Router {
     let index = 0;
 
     const next: NextFunction = async (err?: any) => {
-      if (err) return finalHandler(err);
+      if (err) {
+        // Try to handle error with router-local error middleware first
+        const handled = await this._runLocalErrorMiddleware(
+          err,
+          req,
+          res,
+          finalHandler
+        );
+        if (handled) return;
+        return finalHandler(err);
+      }
+
       if (index >= handlers.length) return finalHandler();
 
       const handler = handlers[index++];
@@ -477,11 +498,61 @@ export class Router {
       try {
         await handler(req, res, next);
       } catch (error) {
+        // On thrown error, use same local error handling path
+        const handled = await this._runLocalErrorMiddleware(
+          error,
+          req,
+          res,
+          finalHandler
+        );
+        if (handled) return;
         finalHandler(error);
       }
     };
 
     await next();
+  }
+
+  /**
+   * Try to run router-local error middleware matching the request path.
+   * Returns true if the router executed local error middleware (even if that middleware called next),
+   * otherwise false.
+   */
+  private async _runLocalErrorMiddleware(
+    err: any,
+    req: Request,
+    res: Response,
+    finalHandler: NextFunction
+  ): Promise<boolean> {
+    try {
+      const entries: any[] = (this._middlewareStack as any).entries || [];
+      const firstErrorIndex = entries.findIndex(
+        (e) =>
+          e.isErrorHandler &&
+          (e.path === "*" || e.path === "/" || req.path.startsWith(e.path))
+      );
+
+      if (firstErrorIndex >= 0) {
+        const routerFinal: NextFunction = async (e?: any) => {
+          if (e) return finalHandler(e);
+          return finalHandler();
+        };
+
+        await (this._middlewareStack as any).execute(
+          req,
+          res,
+          routerFinal,
+          firstErrorIndex,
+          err
+        );
+        return true;
+      }
+    } catch (ex) {
+      finalHandler(ex);
+      return true;
+    }
+
+    return false;
   }
 
   /**
