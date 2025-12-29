@@ -157,34 +157,143 @@ export type {
 
 // Security module
 export {
+  // IP Filtering
+  allowOnly,
+  // Security Headers
+  apiPermissionsPolicy,
+  // Brute Force Protection
+  apiProtection,
+  // Security Presets
+  apiSecurity,
+  // Request Validation
+  array,
+  autoSecurity,
+  blockIPs,
+  // Helmet
   bodyLimit,
+  boolean,
+  bruteForce,
+  clearSiteData,
+  // Secure Session
+  concurrentSessionPrevention,
   contentSecurityPolicy,
   cors,
   corsAll,
   corsDev,
+  createRedisStore,
+  createSignedToken,
+  crossOriginIsolation,
+  // CSRF Protection
+  csrf,
+  customSecurity,
+  // Sanitization
+  detectPathTraversal,
+  detectSQLInjection,
   dnsPrefetchControl,
+  doubleSubmitCSRF,
+  email,
+  enumValue,
+  escapeHtml,
+  escapeSql,
   frameguard,
+  generateCSRFToken,
+  graphqlSecurity,
   helmet,
   hidePoweredBy,
   hsts,
+  integer,
+  ipFilter,
+  isIPInRange,
+  isPrivateIP,
   jsonWithLimit,
+  localhostOnly,
+  loginProtection,
+  noCache,
+  normalizeIP,
   noSniff,
+  noSqlSanitize,
+  number,
+  object,
+  passwordResetProtection,
+  permissionsPolicy,
+  privateNetworkOnly,
   rateLimit,
   referrerPolicy,
+  relaxedSecurity,
+  requiredString,
+  safeStringify,
+  sanitize,
+  sanitizeEmail,
+  sanitizeFilename,
+  sanitizeHeader,
+  sanitizeNoSQL,
+  sanitizePath,
+  sanitizePhone,
+  sanitizeUrl,
+  secureDownload,
+  secureSession,
+  securityHeaders,
+  sessionActivityLogger,
+  sessionFixationPrevention,
   slowDown,
+  standardSecurity,
+  strictPermissionsPolicy,
+  strictSecurity,
+  string,
+  stripHtml,
   textWithLimit,
+  unescapeHtml,
+  uuid,
+  validate,
+  validateBody,
+  validateParams,
+  validateQuery,
+  verifySignedToken,
+  websocketSecurity,
+  xssSanitize,
 } from "./modules/security";
+
 export type {
+  // Brute Force types
+  AttemptsInfo,
+  // Existing types
   BodyLimitOptions,
+  BruteForceOptions,
+  BruteForceStore,
   CorsOptions,
   CSPDirectives,
   CSPOptions,
+  // CSRF types
+  CSRFCookieOptions,
+  CSRFOptions,
+  // Validation types
+  FieldSchema,
   HelmetOptions,
   HSTSOptions,
+  // IP Filter types
+  IPFilterOptions,
+  // Security Headers types
+  NELOptions,
+  PermissionsPolicyDirectives,
+  PermissionsPolicyValue,
   RateLimitInfo,
   RateLimitOptions,
   RateLimitStore,
   ReferrerPolicy,
+  ReportToGroup,
+  RequestValidationError,
+  // Sanitize types
+  SanitizeOptions,
+  SchemaType,
+  // Secure Session types
+  SecureSessionOptions,
+  SecurityHeadersOptions,
+  // Preset types
+  SecurityPresetOptions,
+  SessionSecurityMeta,
+  SessionViolation,
+  ValidationSchema,
+  ValidatorOptions,
 } from "./modules/security";
 
 // Session module
