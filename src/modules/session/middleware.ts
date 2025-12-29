@@ -10,11 +10,11 @@ import { SessionImpl } from "./session";
 import { SessionCookieImpl } from "./session-cookie";
 import {
   generateSessionId,
-  unsignSessionId,
   signSessionId,
+  unsignSessionId,
 } from "./session-id";
 import { MemoryStore } from "./stores";
-import type { SessionOptions, SessionStore } from "./types";
+import type { SessionOptions } from "./types";
 
 /**
  * Create session middleware
@@ -96,7 +96,6 @@ function createSessionMiddleware(
 
     let sessionInstance: SessionImpl | null = null;
     let isNewSession = false;
-    let shouldSave = false;
 
     try {
       // Initialize session
@@ -109,15 +108,27 @@ function createSessionMiddleware(
       // Setup regenerate function
       setupRegenerateFunction(sessionInstance, req, config);
 
+      // IMPORTANT: Use defer to set cookies BEFORE response is sent
+      // The defer function runs during res.send(), before the response goes out
+      res.defer(async () => {
+        if (!sessionInstance || sessionInstance.isDestroyed) {
+          return;
+        }
+
+        // Determine if we should save
+        const shouldSave = shouldSaveSession(
+          sessionInstance,
+          isNewSession,
+          config
+        );
+
+        if (shouldSave) {
+          await saveSession(sessionInstance, res, config);
+        }
+      });
+
       // Continue with request
       await next();
-
-      // Determine if we should save
-      shouldSave = shouldSaveSession(sessionInstance, isNewSession, config);
-
-      if (shouldSave) {
-        await saveSession(sessionInstance, res, config);
-      }
     } catch (error) {
       console.error("Session middleware error:", error);
 
@@ -143,8 +154,50 @@ async function initializeSession(
   req: Request,
   config: ReturnType<typeof normalizeOptions>
 ): Promise<SessionImpl> {
+  // Check if cookie parser is installed
+  if (req.cookies === undefined) {
+    console.warn(
+      "⚠️  SESSION WARNING: req.cookies is undefined. " +
+        "Make sure cookie parser middleware is installed BEFORE session middleware. " +
+        "If using sessionPlugin, cookie parser is auto-installed. " +
+        "If using session() directly, add cookieParser() first."
+    );
+  }
+
   // Try to load existing session
-  const signedSid = req.cookies?.[config.name];
+  // Note: Cookie parser may put signed cookies ('s:...') in signedCookies
+  // We need to check both locations
+  let signedSid = req.cookies?.[config.name];
+
+  // If not found in cookies, check signedCookies (cookie parser may have moved it there)
+  // The cookie parser unsigns cookies with 's:' prefix and puts the unsigned value in signedCookies
+  if (!signedSid && req.signedCookies?.[config.name]) {
+    // The value in signedCookies is already unsigned by cookie parser
+    // We need to re-wrap it to match our expected format
+    const unsignedFromParser = req.signedCookies[config.name];
+    // The cookie parser already verified and stripped the signature
+    // so we can use this value directly as the session ID
+    const data = await config.store.get(unsignedFromParser);
+
+    if (data && isValidSessionData(data)) {
+      const cookie = SessionCookieImpl.fromJSON(data.cookie);
+
+      if (!cookie.isExpired) {
+        const session = new SessionImpl(
+          unsignedFromParser,
+          config.store,
+          cookie,
+          data
+        );
+
+        if (config.rolling) {
+          session.touch();
+        }
+
+        return session;
+      }
+    }
+  }
 
   if (signedSid) {
     const sid = unsignSessionId(signedSid, config.secrets);
@@ -281,18 +334,20 @@ function shouldSaveSession(
     return false;
   }
 
-  // Force save if resave is enabled
+  // Always save if session has been modified (data was added/changed)
+  // This is the most important check - if user stored data, save it!
+  if (session.isModified) {
+    return true;
+  }
+
+  // Force save if resave is enabled (for existing sessions)
   if (config.resave && !isNew) {
     return true;
   }
 
-  // Save uninitialized sessions if configured
+  // Save uninitialized (empty) new sessions only if configured
+  // saveUninitialized: false means don't create empty session cookies
   if (config.saveUninitialized && isNew) {
-    return true;
-  }
-
-  // Save if modified
-  if (session.isModified) {
     return true;
   }
 

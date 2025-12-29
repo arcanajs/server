@@ -73,26 +73,6 @@ export { RedisStore } from "./stores";
 export type { RedisClient } from "./stores";
 
 // ============================================================================
-// Cookie Parser Exports
-// ============================================================================
-
-export {
-  cookieParser,
-  parseJSONCookie,
-  parseJSONCookies,
-  serializeJSONCookie,
-  parseSignedCookie,
-  parseSignedCookies,
-  signCookie,
-  isValidCookieName,
-  isValidCookieValue,
-  createCookie,
-  CookieBuilder,
-} from "./cookie-parser";
-
-export type { CookieParserOptions } from "./cookie-parser";
-
-// ============================================================================
 // Convenience Exports
 // ============================================================================
 

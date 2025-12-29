@@ -4,6 +4,7 @@ import type {
   SessionCookieOptions,
   SessionStore,
 } from "../modules/session/types";
+import { cookieParser } from "./cookie";
 
 /**
  * Session middleware configuration options
@@ -29,6 +30,8 @@ export interface SessionOptions {
   genid?: (req: any) => string;
   /** Unset behavior */
   unset?: "destroy" | "keep";
+  /** Skip cookie parser auto-install (if you manually installed it) */
+  skipCookieParser?: boolean;
 }
 
 export const sessionPlugin = (options: SessionOptions) => ({
@@ -44,7 +47,13 @@ export const sessionPlugin = (options: SessionOptions) => ({
       throw new Error("session options.secret is required");
     }
 
-    // Install session middleware
+    // Auto-install cookie parser FIRST (required for session to work)
+    // Cookie parser needs the secret to parse signed session cookies
+    if (!options.skipCookieParser) {
+      app.use(cookieParser(options.secret));
+    }
+
+    // Install session middleware AFTER cookie parser
     app.use(session(options));
   },
 });
