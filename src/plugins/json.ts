@@ -23,7 +23,7 @@ export const json = (options: JsonOptions = {}): Middleware => {
 
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // 🛑 Bun limitation: GET / HEAD never have readable bodies
+      // Bun limitation: GET / HEAD never have readable bodies
       if (req.method === "GET" || req.method === "HEAD") {
         return next();
       }
